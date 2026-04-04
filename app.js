@@ -135,7 +135,7 @@ function createEmptyMatchState() {
     selectedReserveCardId: null,
     selectedUnitId: null,
     actionMode: null,
-    turnState: { moved: false, movedUnitId: null, attacked: false, attackCount: 0, attackUnitId: null, itemWindowOpen: true, itemUsed: false, selectedItemCardId: null, selectedItemTargetIndex: null, pendingAction: null, acceleratedUnitId: null, acceleratedMovesRemaining: 0, postAttackMoveUnitId: null, pendingRedeployCardId: null },
+    turnState: { moved: false, movedUnitId: null, attacked: false, attackCount: 0, attackUnitId: null, itemWindowOpen: true, itemUsed: false, selectedItemCardId: null, selectedItemTargetIndex: null, pendingAction: null, acceleratedUnitId: null, acceleratedMovesRemaining: 0, postAttackMoveUnitId: null, pendingRedeployCardId: null, pendingRedeployOwner: null },
     board: Array(25).fill(null),
     pendingRevives: [],
     pendingRedeploys: [],
@@ -1129,9 +1129,16 @@ function getPendingRedeployCardId() {
   return matchState.turnState?.pendingRedeployCardId || '';
 }
 
+function getPendingRedeployOwner() {
+  return matchState.turnState?.pendingRedeployOwner || '';
+}
+
 function getPendingRedeployCard() {
   const cardId = getPendingRedeployCardId();
-  return cardId ? cardMap.get(cardId) : null;
+  const owner = getPendingRedeployOwner();
+  if (!cardId || !owner) return null;
+  const exists = (matchState.pendingRedeploys || []).some((entry) => entry.owner === owner && entry.cardId === cardId);
+  return exists ? cardMap.get(cardId) : null;
 }
 
 function getHomeRespawnCells(playerKey) {
@@ -1193,13 +1200,16 @@ function revivePendingUnitsForPlayer(playerKey) {
 }
 
 function getRedeployableCells(playerKey = matchState.currentPlayer) {
-  if (matchState.phase !== 'battle' || !getPendingRedeployCard()) return [];
+  const pendingCard = getPendingRedeployCard();
+  const pendingOwner = getPendingRedeployOwner();
+  if (matchState.phase !== 'battle' || !pendingCard || pendingOwner !== playerKey) return [];
   return getHomeRespawnCells(playerKey).filter((idx) => !matchState.board[idx]);
 }
 
 function preparePendingRedeployForPlayer(playerKey) {
   if (!matchState.turnState) return;
   matchState.turnState.pendingRedeployCardId = null;
+  matchState.turnState.pendingRedeployOwner = null;
   const pending = getPendingRedeploysForPlayer(playerKey);
   if (!pending.length) return;
   const openCells = getHomeRespawnCells(playerKey).filter((idx) => !matchState.board[idx]);
@@ -1209,26 +1219,39 @@ function preparePendingRedeployForPlayer(playerKey) {
   }
   const entry = pending[0];
   matchState.turnState.pendingRedeployCardId = entry.cardId;
+  matchState.turnState.pendingRedeployOwner = entry.owner;
   matchState.turnState.itemWindowOpen = false;
   addLog(`${PLAYER_LABEL[playerKey]} は ${entry.name} を自陣の空きマスへ再配置できます`);
 }
 
 function placePendingRedeploy(targetIndex) {
   const cardId = getPendingRedeployCardId();
-  if (!cardId) return;
-  const validTargets = getRedeployableCells(matchState.currentPlayer);
+  const pendingOwner = getPendingRedeployOwner();
+  if (!cardId || !pendingOwner) return;
+  const playerKey = matchState.currentPlayer;
+  if (pendingOwner !== playerKey) {
+    matchState.turnState.pendingRedeployCardId = null;
+    matchState.turnState.pendingRedeployOwner = null;
+    renderMatchArea();
+    return;
+  }
+  const validTargets = getRedeployableCells(playerKey);
   if (!validTargets.includes(targetIndex)) return;
 
-  const playerKey = matchState.currentPlayer;
   const pendingIndex = (matchState.pendingRedeploys || []).findIndex((entry) => entry.owner === playerKey && entry.cardId === cardId);
-  if (pendingIndex >= 0) {
-    matchState.pendingRedeploys.splice(pendingIndex, 1);
+  if (pendingIndex < 0) {
+    matchState.turnState.pendingRedeployCardId = null;
+    matchState.turnState.pendingRedeployOwner = null;
+    renderMatchArea();
+    return;
   }
+  matchState.pendingRedeploys.splice(pendingIndex, 1);
 
   const unit = createUnitInstance(cardId, playerKey);
   unit.currentHp = unit.maxHp;
   matchState.board[targetIndex] = unit;
   matchState.turnState.pendingRedeployCardId = null;
+  matchState.turnState.pendingRedeployOwner = null;
   addLog(`${PLAYER_LABEL[playerKey]} の ${unit.name} を ${formatCellLabel(targetIndex)} に再配置しました（HP全回復）`);
 
   if (getPendingRedeploysForPlayer(playerKey).length > 0) {
@@ -2517,7 +2540,7 @@ function beginTurn(playerKey) {
   matchState.currentPlayer = playerKey;
   clearRoomPendingRequests();
   clearExpiredStartOfTurnEffects(playerKey);
-  matchState.turnState = { moved: false, movedUnitId: null, attacked: false, attackCount: 0, attackUnitId: null, itemWindowOpen: true, itemUsed: false, selectedItemCardId: null, selectedItemTargetIndex: null, pendingAction: null, acceleratedUnitId: null, acceleratedMovesRemaining: 0, postAttackMoveUnitId: null, pendingRedeployCardId: null };
+  matchState.turnState = { moved: false, movedUnitId: null, attacked: false, attackCount: 0, attackUnitId: null, itemWindowOpen: true, itemUsed: false, selectedItemCardId: null, selectedItemTargetIndex: null, pendingAction: null, acceleratedUnitId: null, acceleratedMovesRemaining: 0, postAttackMoveUnitId: null, pendingRedeployCardId: null, pendingRedeployOwner: null };
   revivePendingUnitsForPlayer(playerKey);
   refreshTurnStatusForPlayer(playerKey);
   preparePendingRedeployForPlayer(playerKey);
@@ -3462,6 +3485,7 @@ function exportRoomSyncSnapshot() {
       acceleratedUnitId: matchState.turnState?.acceleratedUnitId || null,
       acceleratedMovesRemaining: Number(matchState.turnState?.acceleratedMovesRemaining || 0),
       postAttackMoveUnitId: matchState.turnState?.postAttackMoveUnitId || null,
+      pendingRedeployOwner: matchState.turnState?.pendingRedeployOwner || null,
     },
     players: {
       player1: {
