@@ -448,6 +448,73 @@ select,
   color: #f1dcff;
 }
 
+
+.unit-ability-stack {
+  position: absolute;
+  top: 38px;
+  right: 8px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  pointer-events: auto;
+}
+
+.unit-ability-badge {
+  min-width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 6px 18px rgba(7, 18, 38, 0.35);
+  color: #fff;
+}
+
+.unit-ability-badge.ability-range {
+  background: rgba(22, 70, 110, 0.96);
+  border: 1px solid rgba(117, 208, 255, 0.6);
+  color: #dcf5ff;
+}
+
+.unit-ability-badge.ability-pierce {
+  background: rgba(99, 35, 18, 0.96);
+  border: 1px solid rgba(255, 176, 115, 0.62);
+  color: #ffe7d0;
+}
+
+.unit-ability-badge.ability-guard {
+  background: rgba(112, 88, 23, 0.96);
+  border: 1px solid rgba(255, 223, 136, 0.62);
+  color: #fff4ce;
+}
+
+.unit-ability-badge.ability-revive {
+  background: rgba(44, 88, 28, 0.96);
+  border: 1px solid rgba(149, 255, 144, 0.55);
+  color: #e2ffdd;
+}
+
+.unit-ability-badge.ability-shadow {
+  background: rgba(68, 30, 92, 0.96);
+  border: 1px solid rgba(213, 147, 255, 0.56);
+  color: #f4ddff;
+}
+
+.unit-ability-badge.ability-speed {
+  background: rgba(126, 42, 42, 0.96);
+  border: 1px solid rgba(255, 145, 145, 0.55);
+  color: #ffe1e1;
+}
+
+.unit-ability-badge.ability-aoe {
+  background: rgba(115, 56, 12, 0.96);
+  border: 1px solid rgba(255, 182, 92, 0.58);
+  color: #fff0d5;
+}
 .unit-card {
   height: 100%;
   border-radius: 12px;

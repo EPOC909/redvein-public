@@ -664,6 +664,20 @@ function sanitizeTurnStateSnapshot(turnState, fallback = createTurnState()) {
   };
 }
 
+
+function normalizePendingRedeploys(game) {
+  const raw = Array.isArray(game.pendingRedeploys) ? game.pendingRedeploys : [];
+  const seen = new Set();
+  game.pendingRedeploys = raw.filter((entry) => {
+    if (!entry || (entry.owner !== 'player1' && entry.owner !== 'player2') || !validCardIds.has(String(entry.cardId || ''))) return false;
+    const key = `${entry.owner}:${entry.cardId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    const sameCardOnBoard = (game.board || []).some((unit) => unit && unit.owner === entry.owner && unit.cardId === entry.cardId);
+    return !sameCardOnBoard;
+  }).map((entry) => ({ owner: entry.owner, cardId: String(entry.cardId), name: String(entry.name || getCardMeta(entry.cardId)?.card_name || entry.cardId) }));
+}
+
 function mergePublicStateSnapshot(room, payload, playerKey) {
   if (!room.game) return false;
   const board = sanitizeBoardSnapshot(payload.board);
@@ -679,7 +693,7 @@ function mergePublicStateSnapshot(room, payload, playerKey) {
   room.game.itemPhaseOpen = !!payload.itemPhaseOpen;
   room.game.itemUsed = !!payload.itemUsed;
   room.game.pendingRevives = Array.isArray(payload.pendingRevives) ? payload.pendingRevives : room.game.pendingRevives;
-  room.game.pendingRedeploys = Array.isArray(payload.pendingRedeploys) ? payload.pendingRedeploys : room.game.pendingRedeploys;
+  normalizePendingRedeploys(room.game);
 
   const playerData = payload.players && typeof payload.players === 'object' ? payload.players : {};
   ['player1', 'player2'].forEach((key) => {
@@ -1056,9 +1070,13 @@ function handleAttackUnit(data, ws) {
     game.turnState.postAttackMoveUnitId = unitId;
   }
   if (unitHasEffectType(attacker, 'return_and_redeploy_full_heal')) {
-    game.pendingRedeploys.push({ owner: playerKey, cardId: attacker.cardId, name: attacker.name });
+    const exists = game.pendingRedeploys.some((entry) => entry && entry.owner === playerKey && entry.cardId === attacker.cardId);
+    if (!exists) {
+      game.pendingRedeploys.push({ owner: playerKey, cardId: attacker.cardId, name: attacker.name });
+    }
     game.board[sourceIndex] = null;
     game.turnState.postAttackMoveUnitId = null;
+    normalizePendingRedeploys(game);
   }
   const payload = {
     type: 'attack_applied',

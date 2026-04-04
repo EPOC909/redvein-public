@@ -439,6 +439,27 @@ function getStatusBadgeIcon(kind) {
   return '•';
 }
 
+function getUnitAbilityBadges(unit) {
+  const meta = getUnitMeta(unit);
+  if (!meta) return [];
+  const effectType = String(meta.effect_type || '');
+  const badges = [];
+  const push = (kind, label, title) => badges.push({ kind, label, title });
+
+  if (['range_2', 'row_range_attack', 'pierce_line_2'].includes(effectType)) {
+    push('ability-range', '遠', effectType === 'row_range_attack' ? '遠距離攻撃: 同じ横一列の敵を攻撃できます' : effectType === 'pierce_line_2' ? '遠距離攻撃: 直線2マス先まで攻撃できます' : '遠距離攻撃: 2マス先の敵も攻撃できます');
+  }
+  if (effectType === 'pierce_line_2') push('ability-pierce', '貫', '貫通攻撃: 軽減無視の直線攻撃です');
+  if (effectType === 'double_attack') push('ability-speed', '連', '連撃: 1ターンに2回攻撃できます');
+  if (effectType === 'move_after_attack_1') push('ability-speed', '迅', '攻撃後移動: 攻撃後に1マス移動できます');
+  if (effectType === 'return_and_redeploy_full_heal') push('ability-shadow', '影', '影の暗殺者: 攻撃後に手元へ戻り、次の自身の手番に再配置できます');
+  if (effectType === 'revive_next_turn_from_base') push('ability-revive', '復', '復活: 次の自身の手番開始時に自陣から復活します');
+  if (['guard_adjacent_ally_once', 'intercept_and_counter_1'].includes(effectType)) push('ability-guard', '護', '護衛効果を持つユニットです');
+  if (['self_center_aoe_1_on_attack', 'splash_adjacent_enemy_on_attack'].includes(effectType)) push('ability-aoe', '範', '範囲ダメージ効果を持つユニットです');
+
+  return badges;
+}
+
 function getAccelerationStatusBadge(unit) {
   if (!unit || matchState.phase !== 'battle' || !matchState.turnState) return null;
   if (matchState.turnState.acceleratedUnitId !== unit.instanceId || matchState.turnState.acceleratedMovesRemaining <= 0) return null;
@@ -1056,6 +1077,13 @@ function findUnitIndexById(instanceId) {
   return matchState.board.findIndex((unit) => unit && unit.instanceId === instanceId);
 }
 
+function findUnitIndexByIdOwned(instanceId, owner = '') {
+  if (!instanceId) return -1;
+  const ownedIndex = matchState.board.findIndex((unit) => unit && unit.instanceId === instanceId && (!owner || unit.owner === owner));
+  if (ownedIndex >= 0) return ownedIndex;
+  return findUnitIndexById(instanceId);
+}
+
 function getUnitMeta(unit) {
   if (!unit) return null;
   return cardMap.get(unit.cardId) || null;
@@ -1125,12 +1153,20 @@ function queueUnitRevive(unit) {
 function queueUnitRedeploy(unit) {
   if (!unit || !unitHasEffectType(unit, 'return_and_redeploy_full_heal')) return;
   matchState.pendingRedeploys = matchState.pendingRedeploys || [];
-  matchState.pendingRedeploys.push({
-    owner: unit.owner,
-    cardId: unit.cardId,
-    name: unit.name,
-  });
+  const exists = matchState.pendingRedeploys.some((entry) => entry.owner === unit.owner && entry.cardId === unit.cardId);
+  if (!exists) {
+    matchState.pendingRedeploys.push({
+      owner: unit.owner,
+      cardId: unit.cardId,
+      name: unit.name,
+    });
+  }
   addLog(`${unit.name} は効果で手元に戻りました。次の ${PLAYER_LABEL[unit.owner]} の手番開始時に自陣へ再配置できます`);
+}
+
+function clearPendingRedeployForUnit(unit) {
+  if (!unit || !matchState.pendingRedeploys) return;
+  matchState.pendingRedeploys = matchState.pendingRedeploys.filter((entry) => !(entry.owner === unit.owner && entry.cardId === unit.cardId));
 }
 
 function revivePendingUnitsForPlayer(playerKey) {
@@ -1520,6 +1556,7 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
   if (!ignoreReduction) addLog(`${sourceLabel} ${defender.name} に ${actualDamage} ダメージ`);
   if (defender.currentHp <= 0) {
     matchState.board[targetIndex] = null;
+    clearPendingRedeployForUnit(defender);
     if (creditPlayerKey) {
       getPlayerState(creditPlayerKey).defeated += 1;
     }
@@ -1616,8 +1653,10 @@ function applyItemEffect(card, playerKey) {
       const destroyedUnit = matchState.board[targetIndex];
       if (!destroyedUnit) return false;
       matchState.board[targetIndex] = null;
+      clearPendingRedeployForUnit(destroyedUnit);
       getPlayerState(playerKey).defeated += 1;
       addLog(`${actorLabel}: ${card.card_name} で ${destroyedUnit.name} を即座に破壊しました`);
+      queueUnitRevive(destroyedUnit);
       return true;
     }
     case 'disable_attack_next_round': {
@@ -2263,6 +2302,7 @@ function renderBoard() {
       const hoverEffectText = String(unitCardMeta?.effect_text || '効果なし').trim() || '効果なし';
       visual.title = `${unit.name}
 ${hoverEffectText}`;
+      const abilityBadges = getUnitAbilityBadges(unit);
       visual.innerHTML = `
         <img class="board-card-image" src="${getCardImagePath(unitCardMeta)}" alt="${unit.name}" loading="lazy" />
         <div class="board-card-overlay top">
@@ -2274,6 +2314,18 @@ ${hoverEffectText}`;
           <span class="stat-chip stat-mv">MV ${getEffectiveMove(unit, index)}</span>
         </div>
       `;
+      if (abilityBadges.length) {
+        const abilityStack = document.createElement('div');
+        abilityStack.className = 'unit-ability-stack';
+        abilityBadges.forEach((badgeInfo) => {
+          const badge = document.createElement('div');
+          badge.className = `unit-ability-badge ${badgeInfo.kind}`;
+          badge.textContent = badgeInfo.label;
+          badge.title = badgeInfo.title || hoverEffectText;
+          abilityStack.appendChild(badge);
+        });
+        visual.appendChild(abilityStack);
+      }
       cell.appendChild(visual);
     }
 
@@ -2868,9 +2920,11 @@ function applyPendingAttack(pendingAction) {
   })();
 
   if (attackerAfterAllEffects && unitHasEffectType(attackerAfterAllEffects, 'return_and_redeploy_full_heal')) {
-    const currentIndex = findUnitIndexById(attackerAfterAllEffects.instanceId);
-    if (currentIndex >= 0) {
-      queueUnitRedeploy(attackerAfterAllEffects);
+    const expectedOwner = String(pendingAction.actorPlayer || attackerAfterAllEffects.owner || '');
+    const currentIndex = findUnitIndexByIdOwned(attackerAfterAllEffects.instanceId, expectedOwner);
+    const currentUnit = currentIndex >= 0 ? matchState.board[currentIndex] : null;
+    if (currentUnit && (!expectedOwner || currentUnit.owner === expectedOwner)) {
+      queueUnitRedeploy(currentUnit);
       matchState.board[currentIndex] = null;
       matchState.selectedUnitId = null;
       attackerAfterAllEffects = null;
@@ -3298,10 +3352,11 @@ function applyRoomMove(data = {}) {
     return true;
   }
 
-  const actualSourceIndex = findUnitIndexById(unitId);
+  const actorPlayer = String(data.player || '');
+  const actualSourceIndex = findUnitIndexByIdOwned(unitId, actorPlayer);
   const resolvedSourceIndex = actualSourceIndex >= 0 ? actualSourceIndex : sourceIndex;
   const unit = matchState.board[resolvedSourceIndex];
-  if (!unit) return false;
+  if (!unit || (actorPlayer && unit.owner !== actorPlayer)) return false;
 
   applyPendingMove({
     type: 'move',
@@ -3326,11 +3381,12 @@ function applyRoomAttack(data = {}) {
     return true;
   }
 
-  const sourceIndex = findUnitIndexById(unitId);
+  const actorPlayer = String(data.player || '');
+  const sourceIndex = findUnitIndexByIdOwned(unitId, actorPlayer);
   if (sourceIndex < 0) return false;
   const attacker = matchState.board[sourceIndex];
   const defender = matchState.board[targetIndex];
-  if (!attacker || !defender || attacker.owner === defender.owner) return false;
+  if (!attacker || (actorPlayer && attacker.owner !== actorPlayer) || !defender || attacker.owner === defender.owner) return false;
 
   applyPendingAttack({
     type: 'attack',
@@ -3339,6 +3395,7 @@ function applyRoomAttack(data = {}) {
     sourceIndex,
     targetIndex,
     targetName: defender.name,
+    actorPlayer,
     damage: getAttackDamageAgainst(attacker, sourceIndex, defender, targetIndex),
     bonusText: attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, targetIndex, defender.owner) ? '背後攻撃 +1' : '',
   });
