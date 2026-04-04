@@ -256,6 +256,7 @@ function createInitialGameState(room) {
 }
 
 function getEliminationFinishMessage(game) {
+  if (!game || !['battle', 'finished'].includes(game.phase)) return '';
   const p1Alive = game.board.filter((unit) => unit && unit.owner === 'player1').length;
   const p2Alive = game.board.filter((unit) => unit && unit.owner === 'player2').length;
   const p1Active = p1Alive > 0 || (Array.isArray(game.pendingRedeploys) && game.pendingRedeploys.some((item) => item && item.owner === 'player1'));
