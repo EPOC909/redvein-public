@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RED VEIN Arena</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>RED VEIN Arena</h1>
+      <p class="subtitle">公開テスト版 / ルーム対戦対応</p>
+    </div>
+    <div class="topbar-actions">
+      <button id="toggleCollectionButton" class="button secondary">コレクションを隠す</button>
+      <button id="toggleLogButton" class="button secondary">ログを隠す</button>
+      <button id="reloadButton" class="button secondary public-room-legacy-hidden">再読み込み</button>
+      <button id="clearOwnedButton" class="button danger public-room-manage-hidden">所持チェック全解除</button>
+      <button id="resetDeckButton" class="button secondary public-room-manage-hidden">現在のデッキを初期化</button>
+    </div>
+  </header>
+
+  <main class="page compact-page">
+    <section id="errorBox" class="error hidden"></section>
+
+    <section class="public-warning-banner card-panel">
+      <div class="public-warning-head">公開版テストの注意</div>
+      <div class="public-warning-text">試合中は <strong>再読み込み・戻る・タブを閉じる</strong> をしないでください。現在の仕様では進行不能になる場合があります。</div>
+    </section>
+
+
+
+    <section class="room-section card-panel">
+      <div class="room-section-header">
+        <div>
+          <h2>公開版テストルーム</h2>
+          <p class="panel-note">ルーム作成 / 参加 / 観戦 / 試合開始 / 対戦同期まで確認できます。</p>
+        </div>
+        <div class="room-connection-badge" id="roomConnectionBadge">未接続</div>
+      </div>
+
+      <div class="room-grid">
+        <div class="room-box card-subpanel">
+          <h3>1. 名前とデッキを選ぶ</h3>
+          <div class="control-group">
+            <label for="roomDisplayNameInput">表示名</label>
+            <input id="roomDisplayNameInput" type="text" placeholder="例: Shioka" />
+          </div>
+          <div class="control-group">
+            <label for="roomDeckSelect">使用デッキ</label>
+            <select id="roomDeckSelect">
+              <option value="">保存済みデッキを選択</option>
+            </select>
+          </div>
+          <div class="room-button-row">
+            <button id="createRoomButton" class="button primary">ルーム作成</button>
+          </div>
+        </div>
+
+        <div class="room-box card-subpanel">
+          <h3>2. ルームに入る</h3>
+          <div class="control-group">
+            <label for="roomIdInput">ルームID</label>
+            <input id="roomIdInput" type="text" placeholder="例: ABC123" />
+          </div>
+          <div class="room-button-row multi-row">
+            <button id="joinRoomButton" class="button primary">プレイヤー参加</button>
+            <button id="spectateRoomButton" class="button secondary">観戦参加</button>
+            <button id="copyInviteButton" class="button secondary">招待URLをコピー</button>
+          </div>
+          <div class="room-note">※ 試合中は再読み込み・戻る禁止です。対戦が止まった場合はルームを作り直してください。</div>
+        </div>
+      </div>
+
+      <div class="room-status-grid">
+        <section class="room-status-box card-subpanel">
+          <h3>現在の接続状態</h3>
+          <div class="room-status-list">
+            <div><span>自分の立場</span><strong id="currentRoleLabel">-</strong></div>
+            <div><span>ルームID</span><strong id="currentRoomLabel">-</strong></div>
+            <div><span>ルーム状態</span><strong id="currentRoomStateLabel">-</strong></div>
+            <div><span>接続状態</span><strong id="currentSocketStateLabel">未接続</strong></div>
+          </div>
+        </section>
+
+        <section class="room-status-box card-subpanel">
+          <h3>参加状況</h3>
+          <div class="room-member-list">
+            <div class="room-member-item"><span>P1</span><strong id="roomP1Label">空き</strong></div>
+            <div class="room-member-item"><span>P2</span><strong id="roomP2Label">空き</strong></div>
+            <div class="room-member-item"><span>観戦</span><strong id="roomSpectatorLabel">空き</strong></div>
+          </div>
+        </section>
+      </div>
+
+      <section class="room-status-box card-subpanel room-start-box">
+        <h3>ルーム対戦開始</h3>
+        <div class="room-start-actions">
+          <button id="roomStartGameButton" class="button primary">ルーム対戦を開始</button>
+        </div>
+        <div id="roomStartHint" class="room-start-hint">先にルームへ接続してください。</div>
+      </section>
+
+      <section class="room-status-box card-subpanel">
+        <h3>招待URL</h3>
+        <div id="inviteUrlBox" class="invite-url-box">-</div>
+      </section>
+
+      <section class="room-status-box card-subpanel">
+        <h3>ルームログ</h3>
+        <div id="roomLog" class="room-log-box"></div>
+      </section>
+    </section>
+
+    <section class="board-section card-panel board-always-visible">
+      <div class="board-section-header compact-header">
+        <div>
+          <h2>5×5共有盤面</h2>
+          <p class="panel-note">ルーム対戦開始後、この盤面に P1 / P2 / 観戦で同じ試合状態が表示されます。</p>
+        </div>
+        <div class="board-actions-top">
+          <button id="startMatchButton" class="button primary public-room-legacy-hidden">ローカル用開始</button>
+          <button id="resetMatchButton" class="button secondary public-room-legacy-hidden">ローカル用リセット</button>
+        </div>
+      </div>
+
+      
+      <div class="board-warning-inline">
+        試合中は <strong>再読み込み・戻る・タブを閉じる</strong> をしないでください。
+      </div>
+
+      <div class="match-setup-grid compact-setup-grid">
+        <div class="control-group">
+          <label for="player1DeckSelect">プレイヤー1デッキ</label>
+          <select id="player1DeckSelect">
+            <option value="">ルーム開始時に自動反映</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="player2DeckSelect">プレイヤー2デッキ</label>
+          <select id="player2DeckSelect">
+            <option value="">ルーム開始時に自動反映</option>
+          </select>
+        </div>
+        <div class="control-group compact-info">
+          <label>状態</label>
+          <div id="matchStatus" class="info-box">未開始</div>
+        </div>
+        <div class="control-group compact-info">
+          <label>ラウンド / 手番</label>
+          <div id="turnInfo" class="info-box">-</div>
+        </div>
+      </div>
+
+      <div class="board-layout split-layout">
+        <aside class="battle-side-panel side-left">
+          <section class="player-box card-subpanel p1-side" id="player1Box">
+            <div class="player-box-header">
+              <h3>プレイヤー1</h3>
+              <span class="player-tag p1-tag">左側 / 赤</span>
+            </div>
+            <div id="player1Summary" class="player-summary">デッキ未選択</div>
+            <div class="field-slot">
+              <div class="field-slot-title">環境カード</div>
+              <div id="player1FieldCard" class="field-card-display">-</div>
+              <button id="player1FieldLogButton" class="button secondary small" disabled>環境処理をログ</button>
+            </div>
+            <div class="item-slot compact-slot">
+              <div class="field-slot-title">アイテム手札</div>
+              <div id="player1Items" class="side-card-list empty-list"></div>
+            </div>
+            <div class="reserve-slot compact-slot">
+              <div class="field-slot-title">配置待ちバトルカード</div>
+              <div id="player1Reserve" class="side-card-list empty-list"></div>
+            </div>
+          </section>
+
+          <section id="actionPanelLeft" class="action-panel card-subpanel compact-action-panel">
+            <h3>操作</h3>
+            <div id="phaseInfo" class="info-box tall">デッキを選んで開始してください</div>
+            <div id="itemConfirmBox" class="item-confirm-box hidden">
+              <div id="itemConfirmTitle" class="item-confirm-title">アイテムを1枚選んでください</div>
+              <div id="itemConfirmText" class="item-confirm-text">左右の手札から1枚選ぶとここに確認が表示されます。</div>
+              <div class="item-confirm-actions">
+                <button id="confirmItemUseButton" class="button primary small" disabled>このアイテムを使う</button>
+                <button id="cancelItemUseButton" class="button secondary small" disabled>キャンセル</button>
+              </div>
+            </div>
+            <div id="actionConfirmBox" class="item-confirm-box action-confirm-box hidden">
+              <div id="actionConfirmTitle" class="item-confirm-title">行動確認</div>
+              <div id="actionConfirmText" class="item-confirm-text">移動や攻撃を確定する前に確認が表示されます。</div>
+              <div class="item-confirm-actions">
+                <button id="confirmActionButton" class="button primary small" disabled>この行動を確定</button>
+                <button id="cancelActionButton" class="button secondary small" disabled>キャンセル</button>
+              </div>
+            </div>
+            <div class="action-buttons-grid compact-action-grid">
+              <button id="itemPhaseDoneButton" class="button secondary" disabled>アイテムを使わず次へ</button>
+              <button id="moveModeButton" class="button secondary" disabled>移動モード</button>
+              <button id="attackModeButton" class="button secondary" disabled>攻撃モード</button>
+              <button id="endTurnButton" class="button primary" disabled>手番終了</button>
+              <button id="clearSelectionButton" class="button secondary" disabled>選択解除</button>
+            </div>
+            <div id="selectionInfo" class="selection-info">ユニット未選択</div>
+          </section>
+        </aside>
+
+        <section class="board-center-area compact-board-center">
+          <div id="scoreBar" class="score-bar split-score-bar">
+            <div class="score-item score-p1"><span>P1撃破</span><strong id="player1Defeats">0</strong></div>
+            <div class="score-item score-p1"><span>P1現在点</span><strong id="player1Points">0</strong></div>
+            <div class="score-item score-p2"><span>P2現在点</span><strong id="player2Points">0</strong></div>
+            <div class="score-item score-p2"><span>P2撃破</span><strong id="player2Defeats">0</strong></div>
+          </div>
+          <div class="board-side-label board-side-left">P1 SIDE</div>
+          <div class="board-side-label board-side-right">P2 SIDE</div>
+          <div id="boardGrid" class="board-grid"></div>
+          <div class="board-bottom-row compact-bottom-row">
+            <p class="board-help">中央3×3がポイント領域です。配置フェーズでは左列と右列のみ置けます。</p>
+            <button id="scrollToCollectionButton" class="button secondary small">コレクションへ移動</button>
+          </div>
+        </section>
+
+        <aside class="battle-side-panel side-right">
+          <section class="player-box card-subpanel p2-side" id="player2Box">
+            <div class="player-box-header">
+              <h3>プレイヤー2</h3>
+              <span class="player-tag p2-tag">右側 / 青</span>
+            </div>
+            <div id="player2Summary" class="player-summary">デッキ未選択</div>
+            <div class="field-slot">
+              <div class="field-slot-title">環境カード</div>
+              <div id="player2FieldCard" class="field-card-display">-</div>
+              <button id="player2FieldLogButton" class="button secondary small" disabled>環境処理をログ</button>
+            </div>
+            <div class="item-slot compact-slot">
+              <div class="field-slot-title">アイテム手札</div>
+              <div id="player2Items" class="side-card-list empty-list"></div>
+            </div>
+            <div class="reserve-slot compact-slot">
+              <div class="field-slot-title">配置待ちバトルカード</div>
+              <div id="player2Reserve" class="side-card-list empty-list"></div>
+            </div>
+          </section>
+
+          <section id="actionPanelRight" class="action-panel card-subpanel compact-action-panel action-panel-right">
+            <h3>操作</h3>
+            <div id="phaseInfoRight" class="info-box tall">デッキを選んで開始してください</div>
+            <div id="itemConfirmBoxRight" class="item-confirm-box hidden">
+              <div id="itemConfirmTitleRight" class="item-confirm-title">アイテムを1枚選んでください</div>
+              <div id="itemConfirmTextRight" class="item-confirm-text">左右の手札から1枚選ぶとここに確認が表示されます。</div>
+              <div class="item-confirm-actions">
+                <button id="confirmItemUseButtonRight" class="button primary small" disabled>このアイテムを使う</button>
+                <button id="cancelItemUseButtonRight" class="button secondary small" disabled>キャンセル</button>
+              </div>
+            </div>
+            <div id="actionConfirmBoxRight" class="item-confirm-box action-confirm-box hidden">
+              <div id="actionConfirmTitleRight" class="item-confirm-title">行動確認</div>
+              <div id="actionConfirmTextRight" class="item-confirm-text">移動や攻撃を確定する前に確認が表示されます。</div>
+              <div class="item-confirm-actions">
+                <button id="confirmActionButtonRight" class="button primary small" disabled>この行動を確定</button>
+                <button id="cancelActionButtonRight" class="button secondary small" disabled>キャンセル</button>
+              </div>
+            </div>
+            <div class="action-buttons-grid compact-action-grid">
+              <button id="itemPhaseDoneButtonRight" class="button secondary" disabled>アイテムを使わず次へ</button>
+              <button id="moveModeButtonRight" class="button secondary" disabled>移動モード</button>
+              <button id="attackModeButtonRight" class="button secondary" disabled>攻撃モード</button>
+              <button id="endTurnButtonRight" class="button primary" disabled>手番終了</button>
+              <button id="clearSelectionButtonRight" class="button secondary" disabled>選択解除</button>
+            </div>
+            <div id="selectionInfoRight" class="selection-info">ユニット未選択</div>
+          </section>
+
+          <section id="battleLogDrawer" class="battle-log-panel card-subpanel compact-log-panel floating-log-panel">
+            <h3>対戦ログ</h3>
+            <div id="battleLog" class="battle-log"></div>
+          </section>
+        </aside>
+      </div>
+    </section>
+
+    <section id="collectionSection" class="collection-section">
+      <section class="controls card-panel compact-controls">
+        <div class="control-group">
+          <label for="searchInput">カード名検索</label>
+          <input id="searchInput" type="text" placeholder="例: 騎士 / 祝福 / ヴェイン" />
+        </div>
+
+        <div class="control-group">
+          <label for="typeFilter">種別</label>
+          <select id="typeFilter">
+            <option value="all">すべて</option>
+            <option value="battle">バトル</option>
+            <option value="item">アイテム</option>
+            <option value="field">環境</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label for="rarityFilter">レアリティ</label>
+          <select id="rarityFilter">
+            <option value="all">すべて</option>
+            <option value="N">N</option>
+            <option value="R">R</option>
+            <option value="SR">SR</option>
+            <option value="SSR">SSR</option>
+            <option value="UR">UR</option>
+          </select>
+        </div>
+
+        <div class="control-group checkbox-group">
+          <label for="ownedOnlyCheckbox">表示条件</label>
+          <label class="checkbox-label">
+            <input id="ownedOnlyCheckbox" type="checkbox" />
+            所持カードのみ表示
+          </label>
+        </div>
+
+        <div class="control-group status-group">
+          <span id="countLabel">0枚表示</span>
+          <span id="ownedCountLabel">所持0枚</span>
+        </div>
+      </section>
+
+      <section class="deck-layout compact-deck-layout">
+        <aside class="deck-panel card-panel">
+          <div class="deck-header-row">
+            <div>
+              <h2>デッキ作成</h2>
+              <p class="panel-note">所持カードだけを追加できます</p>
+            </div>
+          </div>
+
+          <div class="deck-inputs">
+            <div class="control-group">
+              <label for="deckNameInput">デッキ名</label>
+              <input id="deckNameInput" type="text" placeholder="例: 標準デッキ" />
+            </div>
+            <div class="deck-actions">
+              <button id="saveDeckButton" class="button primary">デッキ保存</button>
+            </div>
+          </div>
+
+          <div class="deck-counts">
+            <span id="battleCountBadge" class="count-badge">バトル 0 / 5</span>
+            <span id="itemCountBadge" class="count-badge">アイテム 0 / 4</span>
+            <span id="fieldCountBadge" class="count-badge">環境 0 / 1</span>
+          </div>
+
+          <div class="saved-decks card-subpanel">
+            <h3>保存済みデッキ</h3>
+            <div class="saved-deck-row">
+              <select id="savedDeckSelect">
+                <option value="">保存済みデッキを選択</option>
+              </select>
+            </div>
+            <div class="saved-deck-actions">
+              <button id="loadDeckButton" class="button secondary">読み込み</button>
+              <button id="deleteDeckButton" class="button danger">削除</button>
+            </div>
+          </div>
+
+          <div class="current-deck compact-current-deck">
+            <div class="current-deck-group card-subpanel">
+              <h3>バトル <span id="battleCountText">0 / 5</span></h3>
+              <div id="battleDeckList" class="deck-list"></div>
+            </div>
+
+            <div class="current-deck-group card-subpanel">
+              <h3>アイテム <span id="itemCountText">0 / 4</span></h3>
+              <div id="itemDeckList" class="deck-list"></div>
+            </div>
+
+            <div class="current-deck-group card-subpanel">
+              <h3>環境 <span id="fieldCountText">0 / 1</span></h3>
+              <div id="fieldDeckList" class="deck-list"></div>
+            </div>
+          </div>
+        </aside>
+
+        <section id="cardsGrid" class="cards-grid"></section>
+      </section>
+    </section>
+  </main>
+
+  <template id="cardTemplate">
+    <article class="card-item card-panel">
+      <div class="image-wrap">
+        <img class="card-image" alt="" loading="lazy" />
+      </div>
+      <div class="card-body">
+        <div class="card-row top">
+          <span class="card-id"></span>
+          <span class="card-rarity"></span>
+        </div>
+        <h2 class="card-name"></h2>
+        <div class="card-row meta">
+          <span class="card-type"></span>
+          <span class="card-stats"></span>
+        </div>
+        <p class="card-effect"></p>
+        <div class="card-row bottom">
+          <span class="card-effect-type"></span>
+        </div>
+        <div class="card-actions">
+          <button class="button owned-button" type="button">所持にする</button>
+          <button class="button deck-button secondary" type="button">デッキに追加</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <template id="deckItemTemplate">
+    <div class="deck-item">
+      <div>
+        <div class="deck-item-title"></div>
+        <div class="deck-item-meta"></div>
+      </div>
+      <button class="button remove-deck-item" type="button">外す</button>
+    </div>
+  </template>
+
+  <script src="app.js"></script>
+  <script src="room-client.js"></script>
+</body>
+</html>
