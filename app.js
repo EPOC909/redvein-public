@@ -80,6 +80,8 @@ const player1Defeats = document.getElementById('player1Defeats');
 const player2Defeats = document.getElementById('player2Defeats');
 const player1Points = document.getElementById('player1Points');
 const player2Points = document.getElementById('player2Points');
+const player1PointsCard = player1Points?.closest('.score-item') || null;
+const player2PointsCard = player2Points?.closest('.score-item') || null;
 const itemConfirmBox = document.getElementById('itemConfirmBox');
 const itemConfirmTitle = document.getElementById('itemConfirmTitle');
 const itemConfirmText = document.getElementById('itemConfirmText');
@@ -171,6 +173,337 @@ let combatFxHoldUntil = 0;
 let combatFxHoldTimer = null;
 let combatFxPendingRender = false;
 let combatFxSkipNextSnapshotDiff = false;
+
+function injectFinishShowcaseStyles() {
+  if (document.getElementById('redveinFinishShowcaseStyle')) return;
+  const style = document.createElement('style');
+  style.id = 'redveinFinishShowcaseStyle';
+  style.textContent = `
+    .board-grid.rv-finish-grid { position: relative; overflow: visible; }
+    .board-grid.rv-finish-grid .board-cell { filter: saturate(0.7) brightness(0.72); transform: scale(0.985); transition: filter 0.28s ease, transform 0.28s ease; }
+    .board-grid.rv-finish-grid .board-cell.current-turn-unit { filter: saturate(0.72) brightness(0.72); }
+    .board-grid.rv-finish-grid::before {
+      content: '';
+      position: absolute;
+      inset: -8px;
+      border-radius: 24px;
+      background: radial-gradient(circle at top, rgba(255, 225, 164, 0.12), transparent 42%), linear-gradient(180deg, rgba(9, 6, 8, 0.28), rgba(9, 6, 8, 0.64));
+      box-shadow: 0 22px 56px rgba(0, 0, 0, 0.32), inset 0 0 0 1px rgba(255, 232, 185, 0.08);
+      pointer-events: none;
+      z-index: 16;
+    }
+    .board-grid.rv-finish-grid.rv-finish-player1::before { box-shadow: 0 24px 64px rgba(0, 0, 0, 0.34), 0 0 42px rgba(179, 44, 77, 0.18), inset 0 0 0 1px rgba(255, 232, 185, 0.08); }
+    .board-grid.rv-finish-grid.rv-finish-player2::before { box-shadow: 0 24px 64px rgba(0, 0, 0, 0.34), 0 0 42px rgba(72, 124, 224, 0.18), inset 0 0 0 1px rgba(255, 232, 185, 0.08); }
+    .rv-finish-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      pointer-events: none;
+      z-index: 22;
+    }
+    .rv-finish-card {
+      position: relative;
+      width: min(92%, 560px);
+      padding: 24px 24px 20px;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 226, 163, 0.24);
+      background: linear-gradient(180deg, rgba(37, 19, 26, 0.96), rgba(19, 11, 17, 0.96));
+      box-shadow: 0 26px 90px rgba(0, 0, 0, 0.48), inset 0 0 0 1px rgba(255,255,255,0.05);
+      overflow: hidden;
+      animation: rvFinishCardRise 520ms cubic-bezier(.2,.9,.25,1) both;
+    }
+    .rv-finish-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at top, rgba(255, 224, 158, 0.24), transparent 48%), linear-gradient(135deg, rgba(255,255,255,0.06), transparent 42%);
+      pointer-events: none;
+    }
+    .rv-finish-card.finish-p1 { box-shadow: 0 26px 90px rgba(0, 0, 0, 0.5), 0 0 48px rgba(179, 44, 77, 0.20), inset 0 0 0 1px rgba(255,255,255,0.05); }
+    .rv-finish-card.finish-p2 { box-shadow: 0 26px 90px rgba(0, 0, 0, 0.5), 0 0 48px rgba(72, 124, 224, 0.18), inset 0 0 0 1px rgba(255,255,255,0.05); }
+    .rv-finish-card.finish-draw { box-shadow: 0 26px 90px rgba(0, 0, 0, 0.5), 0 0 42px rgba(255, 214, 128, 0.14), inset 0 0 0 1px rgba(255,255,255,0.05); }
+    .rv-finish-particles {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      opacity: 0.92;
+    }
+    .rv-finish-particle {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: radial-gradient(circle at 35% 35%, rgba(255,255,255,0.96), rgba(255,255,255,0.18) 55%, transparent 70%);
+      animation: rvFinishParticleFloat linear infinite;
+      opacity: 0.68;
+    }
+    .rv-finish-card.finish-p1 .rv-finish-particle { box-shadow: 0 0 12px rgba(233, 70, 113, 0.52); }
+    .rv-finish-card.finish-p2 .rv-finish-particle { box-shadow: 0 0 12px rgba(102, 151, 255, 0.44); }
+    .rv-finish-card.finish-draw .rv-finish-particle { box-shadow: 0 0 12px rgba(255, 214, 128, 0.40); }
+    .rv-finish-kicker {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 225, 165, 0.30);
+      background: rgba(255, 225, 165, 0.10);
+      color: #ffe1a5;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .rv-finish-title {
+      position: relative;
+      margin: 0;
+      font-size: clamp(30px, 5vw, 48px);
+      line-height: 1.02;
+      letter-spacing: 0.04em;
+      font-weight: 1000;
+      color: #fff5db;
+      text-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    }
+    .rv-finish-card.finish-p1 .rv-finish-title { color: #ffd5df; }
+    .rv-finish-card.finish-p2 .rv-finish-title { color: #d7e6ff; }
+    .rv-finish-subtitle {
+      position: relative;
+      margin: 10px 0 14px;
+      color: #f4dfe5;
+      font-size: 14px;
+      line-height: 1.65;
+    }
+    .rv-finish-chip-row {
+      position: relative;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .rv-finish-chip {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.05);
+      color: #f8e9ec;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+    }
+    .rv-finish-score-grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .rv-finish-score-card {
+      position: relative;
+      border-radius: 18px;
+      padding: 14px 14px 12px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+    }
+    .rv-finish-score-card.is-winner {
+      border-color: rgba(255, 225, 165, 0.40);
+      box-shadow: 0 0 0 1px rgba(255, 225, 165, 0.12) inset, 0 16px 36px rgba(0,0,0,0.20);
+    }
+    .rv-finish-score-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+      color: #fbebef;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+    }
+    .rv-finish-score-tag {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.07);
+      color: #f6dde4;
+    }
+    .rv-finish-score-value {
+      font-size: clamp(26px, 4vw, 34px);
+      font-weight: 1000;
+      color: #fff2cf;
+      line-height: 1;
+      margin-bottom: 10px;
+    }
+    .rv-finish-score-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: #e9d7dc;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .rv-finish-footer {
+      position: relative;
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      color: #ddc7cf;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .rv-finish-callout {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      background: rgba(255, 225, 165, 0.10);
+      border: 1px solid rgba(255, 225, 165, 0.22);
+      color: #ffe1a5;
+      font-weight: 900;
+      margin-top: 10px;
+    }
+    .rv-finish-highlight-winner {
+      box-shadow: 0 0 0 1px rgba(255, 225, 165, 0.18) inset, 0 0 32px rgba(255, 225, 165, 0.12);
+      border-color: rgba(255, 225, 165, 0.32) !important;
+      transform: translateY(-2px);
+    }
+    .rv-finish-highlight-loser { opacity: 0.78; filter: saturate(0.76); }
+    .rv-finish-score-emphasis {
+      border-color: rgba(255, 225, 165, 0.35);
+      box-shadow: 0 0 0 1px rgba(255, 225, 165, 0.12) inset, 0 16px 36px rgba(0, 0, 0, 0.18);
+      transform: translateY(-2px);
+    }
+    @keyframes rvFinishCardRise {
+      0% { opacity: 0; transform: translateY(16px) scale(0.96); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes rvFinishParticleFloat {
+      0% { transform: translate3d(0, 22px, 0) scale(0.8); opacity: 0; }
+      15% { opacity: 0.82; }
+      100% { transform: translate3d(0, -130px, 0) scale(1.22); opacity: 0; }
+    }
+    @media (max-width: 720px) {
+      .rv-finish-overlay { padding: 10px; }
+      .rv-finish-card { width: min(96%, 540px); padding: 18px 16px 16px; }
+      .rv-finish-score-grid { grid-template-columns: 1fr; }
+      .rv-finish-subtitle { font-size: 13px; }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function getFinishWinnerPlayerKey(message = matchState.winner || '') {
+  if (!message) return '';
+  if (message.includes('引き分け') || message.includes('両者全滅')) return '';
+  if (message.includes('プレイヤー1')) return 'player1';
+  if (message.includes('プレイヤー2')) return 'player2';
+  return '';
+}
+
+function getFinishReasonLabel(message = matchState.winner || '') {
+  if (!message) return 'FINISH';
+  if (message.includes('全滅')) return 'ELIMINATION';
+  if (message.includes('ポイント')) return 'POINTS';
+  if (message.includes('引き分け')) return 'DRAW';
+  return 'FINISH';
+}
+
+function getFinishShowcaseData() {
+  const winnerKey = getFinishWinnerPlayerKey();
+  const winnerLabel = winnerKey ? PLAYER_LABEL[winnerKey] : '引き分け';
+  const reasonLabel = getFinishReasonLabel();
+  const title = winnerKey ? `${winnerLabel} VICTORY` : 'DRAW GAME';
+  const subtitle = matchState.winner || '対戦が終了しました';
+  return {
+    winnerKey,
+    winnerLabel,
+    reasonLabel,
+    title,
+    subtitle,
+    round: matchState.round || 10,
+    p1Points: calculatePoints('player1'),
+    p2Points: calculatePoints('player2'),
+    p1Defeats: Number(getPlayerState('player1')?.defeated || 0),
+    p2Defeats: Number(getPlayerState('player2')?.defeated || 0),
+    roomMode: !!roomSyncState.enabled,
+  };
+}
+
+function createFinishParticleMarkup(count = 18) {
+  return Array.from({ length: count }, (_, index) => {
+    const left = ((index * 53) % 100) + 0.5;
+    const delay = ((index % 9) * 0.18).toFixed(2);
+    const duration = (2.9 + ((index * 17) % 8) * 0.18).toFixed(2);
+    const size = 7 + ((index * 11) % 7);
+    const opacity = (0.32 + ((index * 9) % 5) * 0.12).toFixed(2);
+    return `<span class="rv-finish-particle" style="left:${left}%; bottom:-18px; width:${size}px; height:${size}px; animation-delay:${delay}s; animation-duration:${duration}s; opacity:${opacity};"></span>`;
+  }).join('');
+}
+
+function renderMatchFinishOverlay() {
+  injectFinishShowcaseStyles();
+  if (!boardGrid) return;
+  const data = getFinishShowcaseData();
+  const overlay = document.createElement('div');
+  overlay.className = 'rv-finish-overlay';
+  const cardClass = data.winnerKey ? `finish-${data.winnerKey === 'player1' ? 'p1' : 'p2'}` : 'finish-draw';
+  const p1Winner = data.winnerKey === 'player1';
+  const p2Winner = data.winnerKey === 'player2';
+  const kicker = data.reasonLabel === 'ELIMINATION' ? 'ELIMINATION' : data.reasonLabel === 'POINTS' ? 'POINTS DECISION' : data.reasonLabel === 'DRAW' ? 'DRAW' : 'MATCH END';
+  const footerText = data.roomMode
+    ? '試合操作の「再戦 / リセット / ルーム終了」から続行できます。'
+    : 'テスト対戦はデッキを整えて、もう一度開始できます。';
+  overlay.innerHTML = `
+    <div class="rv-finish-card ${cardClass}">
+      <div class="rv-finish-particles">${createFinishParticleMarkup()}</div>
+      <div class="rv-finish-kicker">◆ ${kicker}</div>
+      <h2 class="rv-finish-title">${data.title}</h2>
+      <div class="rv-finish-subtitle">${escapeHtml(data.subtitle)}</div>
+      <div class="rv-finish-chip-row">
+        <span class="rv-finish-chip">ROUND ${data.round}</span>
+        <span class="rv-finish-chip">P1 ${data.p1Points} PT</span>
+        <span class="rv-finish-chip">P2 ${data.p2Points} PT</span>
+      </div>
+      <div class="rv-finish-score-grid">
+        <section class="rv-finish-score-card ${p1Winner ? 'is-winner' : ''}">
+          <div class="rv-finish-score-head"><span>P1</span><span class="rv-finish-score-tag">${p1Winner ? 'WINNER' : (data.winnerKey ? 'LOSE' : 'DRAW')}</span></div>
+          <div class="rv-finish-score-value">${data.p1Points}</div>
+          <div class="rv-finish-score-meta"><span>撃破 ${data.p1Defeats}</span><span>ポイント ${data.p1Points}</span></div>
+        </section>
+        <section class="rv-finish-score-card ${p2Winner ? 'is-winner' : ''}">
+          <div class="rv-finish-score-head"><span>P2</span><span class="rv-finish-score-tag">${p2Winner ? 'WINNER' : (data.winnerKey ? 'LOSE' : 'DRAW')}</span></div>
+          <div class="rv-finish-score-value">${data.p2Points}</div>
+          <div class="rv-finish-score-meta"><span>撃破 ${data.p2Defeats}</span><span>ポイント ${data.p2Points}</span></div>
+        </section>
+      </div>
+      <div class="rv-finish-footer">${footerText}<div class="rv-finish-callout">再戦 / リセット / ルーム終了</div></div>
+    </div>
+  `;
+  boardGrid.classList.add('rv-finish-grid');
+  boardGrid.classList.toggle('rv-finish-player1', p1Winner);
+  boardGrid.classList.toggle('rv-finish-player2', p2Winner);
+  boardGrid.appendChild(overlay);
+
+  player1Box?.classList.toggle('rv-finish-highlight-winner', p1Winner);
+  player2Box?.classList.toggle('rv-finish-highlight-winner', p2Winner);
+  player1Box?.classList.toggle('rv-finish-highlight-loser', !!data.winnerKey && !p1Winner);
+  player2Box?.classList.toggle('rv-finish-highlight-loser', !!data.winnerKey && !p2Winner);
+  player1PointsCard?.classList.toggle('rv-finish-score-emphasis', p1Winner);
+  player2PointsCard?.classList.toggle('rv-finish-score-emphasis', p2Winner);
+}
+
+function clearMatchFinishOverlayState() {
+  boardGrid?.classList.remove('rv-finish-grid', 'rv-finish-player1', 'rv-finish-player2');
+  player1Box?.classList.remove('rv-finish-highlight-winner', 'rv-finish-highlight-loser');
+  player2Box?.classList.remove('rv-finish-highlight-winner', 'rv-finish-highlight-loser');
+  player1PointsCard?.classList.remove('rv-finish-score-emphasis');
+  player2PointsCard?.classList.remove('rv-finish-score-emphasis');
+}
 
 
 function injectActionGuideStyles() {
@@ -410,7 +743,7 @@ function buildGuideState() {
     return {
       show: true,
       title: matchState.winner || '対戦終了',
-      detail: '試合は終了しました。次の試合を始める場合はルームを作り直すか、もう一度対戦を開始してください。',
+      detail: roomSyncState.enabled ? '試合操作の「再戦 / リセット / ルーム終了」から続けられます。' : '試合は終了しました。次の試合を始める場合は、もう一度対戦を開始してください。',
       chips: ['試合終了'],
       highlight: () => {},
     };
@@ -4354,6 +4687,7 @@ function renderBoard() {
 
   boardGrid.classList.toggle('setup-board-active', matchState.phase === 'setup');
   boardGrid.innerHTML = '';
+  clearMatchFinishOverlayState();
 
   for (let index = 0; index < 25; index += 1) {
     const cell = document.createElement('button');
@@ -4463,6 +4797,10 @@ ${hoverEffectText}`;
 
     cell.addEventListener('click', () => handleBoardCellClick(index));
     boardGrid.appendChild(cell);
+  }
+
+  if (matchState.phase === 'finished') {
+    renderMatchFinishOverlay();
   }
 }
 
@@ -4604,7 +4942,7 @@ function renderMatchMeta() {
     }
   } else if (matchState.phase === 'finished') {
     matchStatus.textContent = '対戦終了';
-    setPhaseInfoText(matchState.winner || '対戦が終了しました');
+    setPhaseInfoText(roomSyncState.enabled ? `${matchState.winner || '対戦が終了しました'} / 試合操作の「再戦 / リセット / ルーム終了」から続行できます。` : (matchState.winner || '対戦が終了しました'));
   }
 
   const battleActive = matchState.phase === 'battle';

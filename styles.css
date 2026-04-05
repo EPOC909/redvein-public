@@ -1550,3 +1550,26 @@ body.log-hidden .floating-log-panel {
 .button.danger:hover:not(:disabled) {
   box-shadow: 0 0 0 1px rgba(214, 68, 93, 0.35), 0 12px 24px rgba(112, 16, 31, 0.28);
 }
+
+.room-action-box.match-finished {
+  border-color: rgba(255, 214, 128, 0.34);
+  background: linear-gradient(180deg, rgba(255,214,128,0.12), rgba(161,29,63,0.12));
+  box-shadow: 0 0 0 1px rgba(255,214,128,0.10) inset, 0 18px 40px rgba(0,0,0,0.20);
+}
+.room-action-box.match-finished h3 {
+  color: #ffe6b5;
+  letter-spacing: 0.04em;
+}
+.room-action-box.match-finished .room-action-status {
+  background: linear-gradient(180deg, rgba(255,214,128,0.14), rgba(161,29,63,0.14));
+  border-color: rgba(255,214,128,0.32);
+  color: #fff0d2;
+}
+.room-action-box.match-finished .room-action-buttons .button.primary:not(:disabled) {
+  box-shadow: 0 0 0 1px rgba(255,214,128,0.20), 0 14px 28px rgba(161,29,63,0.20);
+  animation: roomActionPulse 1.8s ease-in-out infinite;
+}
+@keyframes roomActionPulse {
+  0%, 100% { transform: translateY(0); box-shadow: 0 0 0 1px rgba(255,214,128,0.18), 0 14px 28px rgba(161,29,63,0.18); }
+  50% { transform: translateY(-1px); box-shadow: 0 0 0 1px rgba(255,233,178,0.28), 0 18px 34px rgba(161,29,63,0.24); }
+}

@@ -166,6 +166,10 @@ ${roomLog.textContent}` : line;
     roomRematchButton.textContent = myRematch ? '再戦申請を取り消す' : '再戦を申請';
     roomResetButton.textContent = myReset ? 'リセット申請を取り消す' : 'リセットを申請';
 
+    roomActionBox.classList.toggle('match-finished', currentRoomState === 'finished');
+    roomActionBox.classList.toggle('match-playing', currentRoomState === 'playing');
+    roomActionBox.classList.toggle('match-ready', currentRoomState === 'ready');
+
     if (!hasRoom) {
       roomActionStatus.textContent = '先にルームを作成または参加してください。';
       return;
