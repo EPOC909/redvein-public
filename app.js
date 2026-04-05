@@ -1768,7 +1768,7 @@ function getUnitAbilityBadges(unit) {
   if (effectType === 'pierce_line_2') push('ability-pierce', '貫', '貫通攻撃: 軽減無視の直線攻撃です');
   if (effectType === 'double_attack') push('ability-speed', '連', '連撃: 1ターンに2回攻撃できます');
   if (effectType === 'move_after_attack_1') push('ability-speed', '迅', '攻撃後移動: 攻撃後に1マス移動できます');
-  if (effectType === 'return_and_redeploy_full_heal') push('ability-shadow', '影', '影の暗殺者: 攻撃後に手元へ戻り、次の自身の手番に再配置できます');
+  if (['return_to_home_row_after_attack', 'return_and_redeploy_full_heal'].includes(effectType)) push('ability-shadow', '影', '影の暗殺者: 攻撃後、自陣の同じ段に戻ります。戻り先が埋まっている場合は戻りません');
   if (effectType === 'revive_next_turn_from_base') push('ability-revive', '復', '復活: 次の自身の手番開始時に自陣から復活します');
   if (['guard_adjacent_ally_once', 'intercept_and_counter_1'].includes(effectType)) push('ability-guard', '護', '護衛効果を持つユニットです');
   if (['self_center_aoe_1_on_attack', 'splash_adjacent_enemy_on_attack'].includes(effectType)) push('ability-aoe', '範', '範囲ダメージ効果を持つユニットです');
@@ -2407,6 +2407,17 @@ function getUnitMeta(unit) {
 
 function unitHasEffectType(unit, effectType) {
   return getUnitMeta(unit)?.effect_type === effectType;
+}
+
+function unitHasShadowReturnEffect(unit) {
+  const effectType = getUnitMeta(unit)?.effect_type;
+  return effectType === 'return_to_home_row_after_attack' || effectType === 'return_and_redeploy_full_heal';
+}
+
+function getShadowReturnCellIndexForSource(playerKey, sourceIndex) {
+  if (!playerKey || sourceIndex == null || sourceIndex < 0) return -1;
+  const { row } = indexToCoord(sourceIndex);
+  return coordToIndex(row, HOME_COLUMN[playerKey]);
 }
 
 function canNegateDamageOnce(unit) {
@@ -4341,15 +4352,18 @@ function applyPendingAttack(pendingAction) {
     return idx >= 0 ? matchState.board[idx] : null;
   })();
 
-  if (attackerAfterAllEffects && unitHasEffectType(attackerAfterAllEffects, 'return_and_redeploy_full_heal')) {
-    const expectedOwner = String(pendingAction.actorPlayer || attackerAfterAllEffects.owner || '');
-    const currentIndex = findUnitIndexByIdOwned(attackerAfterAllEffects.instanceId, expectedOwner);
-    const currentUnit = currentIndex >= 0 ? matchState.board[currentIndex] : null;
-    if (currentUnit && (!expectedOwner || currentUnit.owner === expectedOwner)) {
-      queueUnitRedeploy(currentUnit);
-      matchState.board[currentIndex] = null;
-      matchState.selectedUnitId = null;
-      attackerAfterAllEffects = null;
+  if (attackerAfterAllEffects && unitHasShadowReturnEffect(attackerAfterAllEffects)) {
+    const currentIndex = findUnitIndexByIdOwned(attackerAfterAllEffects.instanceId, attackerAfterAllEffects.owner);
+    const returnIndex = getShadowReturnCellIndexForSource(attackerAfterAllEffects.owner, pendingAction.sourceIndex);
+    if (currentIndex >= 0 && returnIndex >= 0 && currentIndex !== returnIndex) {
+      if (!matchState.board[returnIndex]) {
+        matchState.board[returnIndex] = matchState.board[currentIndex];
+        matchState.board[currentIndex] = null;
+        attackerAfterAllEffects = matchState.board[returnIndex];
+        addLog(`${attackerAfterAllEffects.name} は影に紛れ、${formatCellLabel(returnIndex)} に戻りました`);
+      } else {
+        addLog(`${attackerAfterAllEffects.name} は戻り先の ${formatCellLabel(returnIndex)} が埋まっているため戻れませんでした`);
+      }
     }
   }
 
