@@ -6296,6 +6296,7 @@ function renderItems(playerKey, targetElement) {
   const currentPlayersTurn = matchState.active && matchState.phase === 'battle' && matchState.currentPlayer === playerKey;
   const canUseItemsNow = currentPlayersTurn && isItemWindowOpen() && !matchState.turnState.itemUsed;
   const compactMode = !canUseItemsNow;
+  const summaryMode = canUseItemsNow;
   const selectedItemCardId = getSelectedItemCardId();
   const decisionFocusActive = canUseItemsNow && !selectedItemCardId && hasItemDecisionFocus();
 
@@ -6304,14 +6305,16 @@ function renderItems(playerKey, targetElement) {
   for (const itemState of player.itemStates) {
     const card = cardMap.get(itemState.cardId);
     const row = document.createElement('div');
-    row.className = `side-card-item with-image ${compactMode ? 'compact-item-row' : ''}`.trim();
-    if (!compactMode && selectedItemCardId === itemState.cardId) row.classList.add('selected-side-card');
+    row.className = `side-card-item ${summaryMode ? 'compact-item-row item-name-only-row' : 'with-image'} ${compactMode ? 'compact-item-row' : ''}`.trim();
+    if (selectedItemCardId === itemState.cardId) row.classList.add('selected-side-card');
     if (decisionFocusActive && !itemState.used) row.classList.add('item-phase-choice-card');
 
     const info = document.createElement('div');
-    info.className = `side-card-info ${compactMode ? 'compact-item-info' : ''}`.trim();
-    info.appendChild(createMiniImage(getCardImagePath(card), card.card_name));
-    info.appendChild(createMiniCardMeta(card, '効果なし', compactMode));
+    info.className = `side-card-info ${(compactMode || summaryMode) ? 'compact-item-info' : ''}`.trim();
+    if (!summaryMode) {
+      info.appendChild(createMiniImage(getCardImagePath(card), card.card_name));
+    }
+    info.appendChild(createMiniCardMeta(card, '効果なし', compactMode || summaryMode));
     row.appendChild(info);
 
     if (itemState.used) {
@@ -6323,12 +6326,27 @@ function renderItems(playerKey, targetElement) {
     } else if (!compactMode) {
       const button = document.createElement('button');
       button.className = `button secondary small ${decisionFocusActive ? 'item-phase-choice-button' : ''}`.trim();
-      button.textContent = selectedItemCardId === itemState.cardId ? '選択中' : '使う';
+      button.textContent = selectedItemCardId === itemState.cardId ? '選択中' : (summaryMode ? '開く' : '使う');
       button.addEventListener('click', () => {
         if (itemState.used || !canUseItemsNow) return;
+        if (summaryMode) {
+          if (typeof openItemPickerModal === 'function') {
+            openItemPickerModal();
+          }
+          return;
+        }
         selectItemForUse(itemState.cardId);
       });
       row.appendChild(button);
+    }
+
+    if (summaryMode && !itemState.used) {
+      row.addEventListener('click', (event) => {
+        if (event.target.closest('button')) return;
+        if (typeof openItemPickerModal === 'function') {
+          openItemPickerModal();
+        }
+      });
     }
 
     targetElement.appendChild(row);
