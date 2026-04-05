@@ -143,6 +143,19 @@ function installRightItemPhaseDoneButtonMirror() {
 
 installRightItemPhaseDoneButtonMirror();
 
+function keepOriginalRightItemPhaseDoneButtonHidden() {
+  if (!itemPhaseDoneButtonRight || !itemPhaseDoneButtonRightMirror) return;
+  itemPhaseDoneButtonRight.hidden = true;
+  itemPhaseDoneButtonRight.style.display = 'none';
+  itemPhaseDoneButtonRight.style.visibility = 'hidden';
+  itemPhaseDoneButtonRight.style.opacity = '0';
+  itemPhaseDoneButtonRight.style.pointerEvents = 'none';
+  itemPhaseDoneButtonRight.tabIndex = -1;
+  itemPhaseDoneButtonRight.setAttribute('aria-hidden', 'true');
+}
+
+keepOriginalRightItemPhaseDoneButtonHidden();
+
 let allCards = [];
 let cardMap = new Map();
 let ownedCardIds = new Set();
@@ -3328,9 +3341,10 @@ function setSelectionInfoText(text) {
 
 
 function enforceStaticActionButtonLabels() {
+  const rightItemPhaseDoneButton = itemPhaseDoneButtonRightMirror || itemPhaseDoneButtonRight;
   [
     [itemPhaseDoneButton, 'アイテムを使わず次へ'],
-    [itemPhaseDoneButtonRight, 'アイテムを使わず次へ'],
+    [rightItemPhaseDoneButton, 'アイテムを使わず次へ'],
     [confirmItemUseButton, 'このアイテムを使う'],
     [confirmItemUseButtonRight, 'このアイテムを使う'],
     [cancelItemUseButton, 'キャンセル'],
@@ -3346,6 +3360,7 @@ function enforceStaticActionButtonLabels() {
     button.style.opacity = '';
     button.setAttribute('aria-label', label);
   });
+  keepOriginalRightItemPhaseDoneButtonHidden();
 }
 
 function syncActionButtonsState(config) {
@@ -3376,6 +3391,7 @@ function syncActionButtonsState(config) {
         panel.itemPhaseDoneButton.hidden = false;
         panel.itemPhaseDoneButton.style.visibility = 'visible';
       }
+      keepOriginalRightItemPhaseDoneButtonHidden();
     }
   });
 }

@@ -27,6 +27,17 @@
   const boardSetupGrid = document.querySelector('.match-setup-grid');
   const player1DeckSelect = document.getElementById('player1DeckSelect');
   const player2DeckSelect = document.getElementById('player2DeckSelect');
+  const roomSection = document.querySelector('.room-section');
+  const roomSectionHeader = roomSection?.querySelector('.room-section-header') || null;
+  const roomStartBox = document.querySelector('.room-start-box');
+
+  let roomHero = null;
+  let roomHeroTitle = null;
+  let roomHeroText = null;
+  let roomHeroStep = null;
+  let roomHeroRole = null;
+  let roomHeroRoomId = null;
+  let roomHeroState = null;
 
   if (!displayNameInput || !roomDeckSelect || !createRoomButton) {
     return;
@@ -90,6 +101,7 @@ ${roomLog.textContent}` : line;
     currentSocketStateLabel.textContent = text;
     roomConnectionBadge.textContent = text;
     roomConnectionBadge.classList.toggle('online', online);
+    updateLobbyHero();
   }
 
   function normalizeRole(role) {
@@ -97,6 +109,119 @@ ${roomLog.textContent}` : line;
     if (role === 'p2') return 'P2';
     if (role === 'spectator') return '観戦';
     return '-';
+  }
+
+  function normalizeRoomStateLabel(state) {
+    if (state === 'ready') return '開始待ち';
+    if (state === 'playing') return '対戦中';
+    if (state === 'finished') return '試合終了';
+    if (state === 'closed') return '終了';
+    if (state === 'setup') return '配置中';
+    return state || '待機中';
+  }
+
+  function installLobbyEnhancements() {
+    if (!roomSection || !roomSectionHeader || roomHero) return;
+
+    roomHero = document.createElement('section');
+    roomHero.className = 'room-hero card-subpanel';
+    roomHero.innerHTML = `
+      <div class="room-hero-grid">
+        <div class="room-hero-copy">
+          <div class="room-hero-eyebrow">PUBLIC LOBBY</div>
+          <h3 id="roomHeroTitle">RED VEIN 公開ロビー</h3>
+          <p id="roomHeroText">表示名とデッキを選んで、ルーム作成・参加・観戦から始められます。</p>
+          <div class="room-hero-chip-row">
+            <span class="room-hero-chip">URL共有で合流</span>
+            <span class="room-hero-chip">P1 / P2 / 観戦対応</span>
+            <span class="room-hero-chip">同じ盤面を同期表示</span>
+          </div>
+        </div>
+        <div class="room-hero-status">
+          <div class="room-hero-status-card">
+            <span>いまの立場</span>
+            <strong id="roomHeroRole">-</strong>
+          </div>
+          <div class="room-hero-status-card">
+            <span>ルームID</span>
+            <strong id="roomHeroRoomId">-</strong>
+          </div>
+          <div class="room-hero-status-card">
+            <span>状態</span>
+            <strong id="roomHeroState">待機中</strong>
+          </div>
+        </div>
+      </div>
+      <div class="room-hero-step-row">
+        <div class="room-hero-step" id="roomHeroStep">① 名前とデッキを選ぶ → ② ルームを作る / 入る → ③ P1 が試合開始</div>
+      </div>
+    `;
+    roomSectionHeader.insertAdjacentElement('afterend', roomHero);
+
+    roomHeroTitle = roomHero.querySelector('#roomHeroTitle');
+    roomHeroText = roomHero.querySelector('#roomHeroText');
+    roomHeroStep = roomHero.querySelector('#roomHeroStep');
+    roomHeroRole = roomHero.querySelector('#roomHeroRole');
+    roomHeroRoomId = roomHero.querySelector('#roomHeroRoomId');
+    roomHeroState = roomHero.querySelector('#roomHeroState');
+
+    roomSection.classList.add('room-section-enhanced');
+    roomSection.querySelectorAll('.room-box, .room-status-box').forEach((box) => box.classList.add('room-lobby-card'));
+  }
+
+  function updateLobbyHero() {
+    if (!roomSection) return;
+    installLobbyEnhancements();
+
+    const connected = !!socket && socket.readyState === WebSocket.OPEN;
+    const roleLabel = normalizeRole(currentRole);
+    const stateLabel = normalizeRoomStateLabel(currentRoomState);
+
+    roomSection.dataset.socketState = connected ? 'online' : 'offline';
+    roomSection.dataset.roomState = currentRoomState || 'idle';
+    roomSection.dataset.roomRole = currentRole || 'none';
+    roomStartBox?.classList.toggle('ready-to-start', connected && currentRole === 'p1' && currentRoomState === 'ready');
+
+    if (roomHeroRole) roomHeroRole.textContent = roleLabel;
+    if (roomHeroRoomId) roomHeroRoomId.textContent = currentRoomId || '-';
+    if (roomHeroState) roomHeroState.textContent = stateLabel;
+
+    if (!roomHeroTitle || !roomHeroText || !roomHeroStep) return;
+
+    if (currentRoomState === 'playing') {
+      roomHeroTitle.textContent = roleLabel === '観戦' ? '対戦観戦中' : `${roleLabel} で対戦中`;
+      roomHeroText.textContent = roleLabel === '観戦'
+        ? '今は観戦ビューです。盤面・ログ・スコアを見ながら試合の流れを追えます。'
+        : '対戦中です。再読み込み・戻る・タブを閉じる操作はしないでください。';
+      roomHeroStep.textContent = roleLabel === '観戦'
+        ? '観戦中：手番表示・ログ・盤面演出を見ながら試合を追えます。'
+        : '対戦中：アイテム → 移動 → 攻撃 → 手番終了の順に進行します。';
+      return;
+    }
+
+    if (currentRoomState === 'ready') {
+      roomHeroTitle.textContent = currentRole === 'p1' ? '開始準備完了' : 'まもなく試合開始';
+      roomHeroText.textContent = currentRole === 'p1'
+        ? 'P1 と P2 が揃っています。準備ができたら「ルーム対戦を開始」を押してください。'
+        : 'P1 が開始すると試合が始まります。今のうちにルールと盤面を確認しておきましょう。';
+      roomHeroStep.textContent = '準備完了：P1 が試合開始 → 配置フェーズ → 本戦へ進みます。';
+      return;
+    }
+
+    if (currentRoomId) {
+      roomHeroTitle.textContent = `${currentRoomId} に接続中`;
+      roomHeroText.textContent = currentRole === 'spectator'
+        ? '観戦者として接続しています。試合開始後は共有盤面が自動で切り替わります。'
+        : `${roleLabel} として接続しています。相手が揃うと試合を開始できます。`;
+      roomHeroStep.textContent = currentRole === 'p1'
+        ? '次の手順：P2 が参加したら「ルーム対戦を開始」を押せます。'
+        : '次の手順：P1 と P2 が揃うと、P1 が試合開始できます。';
+      return;
+    }
+
+    roomHeroTitle.textContent = 'RED VEIN 公開ロビー';
+    roomHeroText.textContent = '表示名とデッキを選んで、ルーム作成・参加・観戦から始められます。';
+    roomHeroStep.textContent = '① 名前とデッキを選ぶ → ② ルームを作る / 入る → ③ P1 が試合開始';
   }
 
   function setMemberLabel(el, slot) {
@@ -332,6 +457,7 @@ ${roomLog.textContent}` : line;
 
     roomStartGameButton.disabled = !connected || !isP1 || !ready || !p1Exists || !p2Exists;
     roomStartHint.classList.toggle('is-warning', ready || playing);
+    roomStartBox?.classList.toggle('ready-to-start', !roomStartGameButton.disabled);
 
     if (playing) {
       roomStartHint.textContent = '試合中です。再読み込み・戻る・タブを閉じる操作はしないでください。';
