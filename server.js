@@ -20,7 +20,6 @@ const MIME_TYPES = {
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.txt': 'text/plain; charset=utf-8',
-  '.mp3': 'audio/mpeg',
 };
 
 const rooms = new Map();
@@ -61,6 +60,17 @@ function makeRoomId() {
   return result;
 }
 
+function createControlRequests() {
+  return {
+    rematch: { p1: false, p2: false },
+    reset: { p1: false, p2: false },
+  };
+}
+
+function clearRoomControlRequests(room) {
+  room.controlRequests = createControlRequests();
+}
+
 function createEmptyRoom(roomId) {
   return {
     roomId,
@@ -69,6 +79,7 @@ function createEmptyRoom(roomId) {
     p2: null,
     spectator: null,
     game: null,
+    controlRequests: createControlRequests(),
     updatedAt: Date.now(),
   };
 }
@@ -111,6 +122,20 @@ function computeRoomState(room) {
   return 'waiting';
 }
 
+function serializeControlRequests(room) {
+  const source = room?.controlRequests || createControlRequests();
+  return {
+    rematch: {
+      p1: !!source.rematch?.p1,
+      p2: !!source.rematch?.p2,
+    },
+    reset: {
+      p1: !!source.reset?.p1,
+      p2: !!source.reset?.p2,
+    },
+  };
+}
+
 function roomSnapshot(room, role) {
   return {
     type: 'room_snapshot',
@@ -120,6 +145,7 @@ function roomSnapshot(room, role) {
     p1: participantSnapshot(room.p1),
     p2: participantSnapshot(room.p2),
     spectator: participantSnapshot(room.spectator),
+    controlRequests: serializeControlRequests(room),
   };
 }
 
@@ -132,6 +158,25 @@ function broadcastRoom(room, noticeMessage = '') {
       if (noticeMessage) send(slot.ws, { type: 'server_notice', message: noticeMessage });
     }
   });
+}
+
+function startRoomGameRound(room, startNotice = '') {
+  if (!room || !room.p1 || !room.p2) return { ok: false, message: 'P1 と P2 が揃ってから開始してください。' };
+  if (!validateDeckPayload(room.p1.deckPayload) || !validateDeckPayload(room.p2.deckPayload)) {
+    return { ok: false, message: 'どちらかのデッキが不正です。入り直してください。' };
+  }
+  clearRoomControlRequests(room);
+  room.game = createInitialGameState(room);
+  room.roomState = computeRoomState(room);
+  const payload = makeGameStartedPayload(room);
+  [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
+    if (slot?.ws) {
+      send(slot.ws, payload);
+      send(slot.ws, roomSnapshot(room, role));
+      if (startNotice) send(slot.ws, { type: 'server_notice', message: startNotice });
+    }
+  });
+  return { ok: true };
 }
 
 function makeGameStartedPayload(room) {
@@ -537,7 +582,6 @@ function beginTurn(game, playerKey) {
 
 function getRequiredItemTargetType(card) {
   switch (card?.effect_type) {
-    case 'heal_single_2':
     case 'full_heal_single':
     case 'buff_move_atk_turn_1':
     case 'shield_single_2_once':
@@ -848,24 +892,10 @@ function handleStartGame(data, ws) {
     send(ws, { type: 'error', message: 'このルームはすでに試合開始済みです。' });
     return;
   }
-  if (!room.p1 || !room.p2) {
-    send(ws, { type: 'error', message: 'P1 と P2 が揃ってから開始してください。' });
-    return;
+  const started = startRoomGameRound(room, `P1 の ${room.p1.displayName} が試合開始しました。配置フェーズはサーバー同期です。`);
+  if (!started.ok) {
+    send(ws, { type: 'error', message: started.message || '試合開始に失敗しました。' });
   }
-  if (!validateDeckPayload(room.p1.deckPayload) || !validateDeckPayload(room.p2.deckPayload)) {
-    send(ws, { type: 'error', message: 'どちらかのデッキが不正です。入り直してください。' });
-    return;
-  }
-  room.game = createInitialGameState(room);
-  room.roomState = computeRoomState(room);
-  const payload = makeGameStartedPayload(room);
-  [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
-    if (slot?.ws) {
-      send(slot.ws, payload);
-      send(slot.ws, roomSnapshot(room, role));
-      send(slot.ws, { type: 'server_notice', message: `P1 の ${room.p1.displayName} が試合開始しました。配置フェーズはサーバー同期です。` });
-    }
-  });
 }
 
 function handlePlaceSetupUnit(data, ws) {
@@ -1088,7 +1118,6 @@ function handleAttackUnit(data, ws) {
     sourceIndex,
     targetIndex,
     currentPlayer: game.currentPlayer,
-    fxHoldMs: 1100,
   };
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([_, slot]) => slot?.ws && send(slot.ws, payload));
 }
@@ -1237,6 +1266,86 @@ function handleSyncPublicState(data, ws) {
   }
 }
 
+
+function sendRoomActionState(room, noticeMessage = '') {
+  broadcastRoom(room, noticeMessage);
+}
+
+function handleRoomActionRequest(data, ws) {
+  const roomId = String(data.roomId || '').toUpperCase();
+  const room = rooms.get(roomId);
+  if (!room) {
+    send(ws, { type: 'error', message: 'そのルームは見つかりません。' });
+    return;
+  }
+  const meta = ws.meta;
+  if (!meta || meta.roomId !== roomId || !['p1', 'p2', 'spectator'].includes(meta.role)) {
+    send(ws, { type: 'error', message: 'このルームの参加者ではありません。' });
+    return;
+  }
+
+  const action = String(data.action || '');
+  if (action === 'close_room') {
+    if (meta.role !== 'p1') {
+      send(ws, { type: 'error', message: 'ルーム終了は P1 だけが実行できます。' });
+      return;
+    }
+    const message = 'P1 がルームを終了しました。必要なら新しいルームを作り直してください。';
+    [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([_, slot]) => {
+      if (slot?.ws) {
+        send(slot.ws, { type: 'room_closed', roomId: room.roomId, message });
+      }
+    });
+    rooms.delete(room.roomId);
+    return;
+  }
+
+  if (!['rematch', 'reset'].includes(action)) {
+    send(ws, { type: 'error', message: '未対応のルーム操作です。' });
+    return;
+  }
+  if (!['p1', 'p2'].includes(meta.role)) {
+    send(ws, { type: 'error', message: '観戦者はこの操作を実行できません。' });
+    return;
+  }
+  if (!room.p1 || !room.p2) {
+    send(ws, { type: 'error', message: 'P1 と P2 が揃っている時だけ使えます。' });
+    return;
+  }
+  if (action === 'rematch' && room.game?.phase !== 'finished') {
+    send(ws, { type: 'error', message: '再戦は試合終了後だけ申請できます。' });
+    return;
+  }
+  if (action === 'reset' && !room.game) {
+    send(ws, { type: 'error', message: 'リセットできる試合がありません。' });
+    return;
+  }
+
+  if (!room.controlRequests) clearRoomControlRequests(room);
+  const requested = data.requested !== false;
+  room.controlRequests[action][meta.role] = requested;
+  room.updatedAt = Date.now();
+
+  const actorLabel = meta.role.toUpperCase();
+  const actionLabel = action === 'rematch' ? '再戦' : 'リセット';
+  const notice = requested
+    ? `${actorLabel} が ${actionLabel} を申請しました。`
+    : `${actorLabel} が ${actionLabel} 申請を取り消しました。`;
+  sendRoomActionState(room, notice);
+
+  if (room.controlRequests[action].p1 && room.controlRequests[action].p2) {
+    clearRoomControlRequests(room);
+    const startNotice = action === 'rematch'
+      ? '両者が再戦を承認したため、同じルームで再戦を開始します。'
+      : '両者がリセットを承認したため、試合を最初からやり直します。';
+    const started = startRoomGameRound(room, startNotice);
+    if (!started.ok) {
+      send(ws, { type: 'error', message: started.message || `${actionLabel} の開始に失敗しました。` });
+      sendRoomActionState(room);
+    }
+  }
+}
+
 function removeConnection(ws) {
   const meta = ws.meta;
   if (!meta?.roomId || !meta.role) return;
@@ -1314,6 +1423,7 @@ wss.on('connection', (ws) => {
         case 'finish_item_phase': handleFinishItemPhase(data, ws); break;
         case 'end_turn': handleEndTurn(data, ws); break;
         case 'sync_public_state': handleSyncPublicState(data, ws); break;
+        case 'room_action_request': handleRoomActionRequest(data, ws); break;
         default: send(ws, { type: 'error', message: '未対応のメッセージです。' }); break;
       }
     } catch (error) {

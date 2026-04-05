@@ -39,9 +39,18 @@
   let currentDeckName = '';
   let currentRoomState = '';
   let currentBattlePlayer = '';
+  let currentControlRequests = {
+    rematch: { p1: false, p2: false },
+    reset: { p1: false, p2: false },
+  };
   let reconnectTimer = null;
   let manualReconnectInFlight = false;
-  let actionResponseTimer = null;
+
+  let roomActionBox = null;
+  let roomActionStatus = null;
+  let roomRematchButton = null;
+  let roomResetButton = null;
+  let roomCloseButton = null;
 
   function loadSavedDecks() {
     roomDeckSelect.innerHTML = '<option value="">保存済みデッキを選択</option>';
@@ -99,6 +108,166 @@ ${roomLog.textContent}` : line;
     const deck = slot.deckName ? ` / ${slot.deckName}` : '';
     const status = slot.connected ? '接続中' : '切断中';
     el.textContent = `${name}${deck} (${status})`;
+  }
+
+  function ensureRoomActionPanel() {
+    if (roomActionBox) return;
+    const anchor = document.querySelector('.room-start-box')?.parentElement || document.querySelector('.room-controls-panel');
+    if (!anchor) return;
+
+    roomActionBox = document.createElement('section');
+    roomActionBox.className = 'room-status-box card-subpanel room-action-box';
+    roomActionBox.innerHTML = `
+      <h3>試合操作</h3>
+      <div class="room-action-buttons">
+        <button type="button" class="button primary" data-room-action="rematch">再戦を申請</button>
+        <button type="button" class="button secondary" data-room-action="reset">リセットを申請</button>
+        <button type="button" class="button secondary danger" data-room-action="close">ルーム終了</button>
+      </div>
+      <div class="room-action-status" id="roomActionStatus">同じルームで再戦・リセット・ルーム終了ができます。</div>
+    `;
+    anchor.appendChild(roomActionBox);
+
+    roomActionStatus = roomActionBox.querySelector('#roomActionStatus');
+    roomRematchButton = roomActionBox.querySelector('[data-room-action="rematch"]');
+    roomResetButton = roomActionBox.querySelector('[data-room-action="reset"]');
+    roomCloseButton = roomActionBox.querySelector('[data-room-action="close"]');
+
+    roomRematchButton?.addEventListener('click', requestRematchToggle);
+    roomResetButton?.addEventListener('click', requestResetToggle);
+    roomCloseButton?.addEventListener('click', closeCurrentRoom);
+  }
+
+  function summarizeApproval(request) {
+    const p1 = request?.p1 ? 'P1承認済み' : 'P1待ち';
+    const p2 = request?.p2 ? 'P2承認済み' : 'P2待ち';
+    return `${p1} / ${p2}`;
+  }
+
+  function updateRoomActionUi() {
+    ensureRoomActionPanel();
+    if (!roomActionBox || !roomActionStatus || !roomRematchButton || !roomResetButton || !roomCloseButton) return;
+
+    const isPlayer = currentRole === 'p1' || currentRole === 'p2';
+    const isP1 = currentRole === 'p1';
+    const connected = socket && socket.readyState === WebSocket.OPEN;
+    const hasRoom = !!currentRoomId;
+    const canRematch = hasRoom && connected && isPlayer && currentRoomState === 'finished';
+    const canReset = hasRoom && connected && isPlayer && (currentRoomState === 'playing' || currentRoomState === 'finished');
+    const canClose = hasRoom && connected && isP1;
+    const myRole = currentRole === 'p1' || currentRole === 'p2' ? currentRole : '';
+    const myRematch = myRole ? !!currentControlRequests.rematch?.[myRole] : false;
+    const myReset = myRole ? !!currentControlRequests.reset?.[myRole] : false;
+
+    roomRematchButton.disabled = !canRematch;
+    roomResetButton.disabled = !canReset;
+    roomCloseButton.disabled = !canClose;
+
+    roomRematchButton.textContent = myRematch ? '再戦申請を取り消す' : '再戦を申請';
+    roomResetButton.textContent = myReset ? 'リセット申請を取り消す' : 'リセットを申請';
+
+    if (!hasRoom) {
+      roomActionStatus.textContent = '先にルームを作成または参加してください。';
+      return;
+    }
+    if (currentRole === 'spectator') {
+      roomActionStatus.textContent = '観戦者は試合操作できません。再戦とリセットは P1 / P2 の両者承認制です。';
+      return;
+    }
+    if (currentRoomState === 'finished') {
+      roomActionStatus.textContent = `再戦: ${summarizeApproval(currentControlRequests.rematch)} / リセット: ${summarizeApproval(currentControlRequests.reset)}。ルーム終了は P1 のみ実行できます。`;
+      return;
+    }
+    if (currentRoomState === 'playing') {
+      roomActionStatus.textContent = `リセット: ${summarizeApproval(currentControlRequests.reset)}。試合終了後は再戦も使えます。ルーム終了は P1 のみです。`;
+      return;
+    }
+    if (currentRoomState === 'ready') {
+      roomActionStatus.textContent = '試合開始前です。ルーム終了は P1 のみです。';
+      return;
+    }
+    roomActionStatus.textContent = '同じルームで再戦・リセット・ルーム終了ができます。';
+  }
+
+  async function sendRoomActionRequest(action, requested = true) {
+    if (!currentRoomId) {
+      writeLog('先にルームへ入ってください。');
+      return;
+    }
+    try {
+      await ensureSocket();
+      sendMessage({
+        type: 'room_action_request',
+        roomId: currentRoomId,
+        action,
+        requested,
+      });
+    } catch (error) {
+      console.error(error);
+      writeLog('接続に失敗しました。');
+    }
+  }
+
+  function requestRematchToggle() {
+    const myRole = currentRole === 'p1' || currentRole === 'p2' ? currentRole : '';
+    if (!myRole) {
+      writeLog('観戦者は再戦申請できません。');
+      return;
+    }
+    const requested = !currentControlRequests.rematch?.[myRole];
+    sendRoomActionRequest('rematch', requested);
+  }
+
+  function requestResetToggle() {
+    const myRole = currentRole === 'p1' || currentRole === 'p2' ? currentRole : '';
+    if (!myRole) {
+      writeLog('観戦者はリセット申請できません。');
+      return;
+    }
+    const requested = !currentControlRequests.reset?.[myRole];
+    sendRoomActionRequest('reset', requested);
+  }
+
+  function leaveClosedRoomLocally(message) {
+    const api = window.REDVEIN_ROOM_API;
+    currentRoomId = '';
+    currentRole = '';
+    reconnectToken = '';
+    currentDeckName = '';
+    currentRoomState = '';
+    currentBattlePlayer = '';
+    currentControlRequests = {
+      rematch: { p1: false, p2: false },
+      reset: { p1: false, p2: false },
+    };
+    currentRoomLabel.textContent = '-';
+    currentRoleLabel.textContent = '-';
+    currentRoomStateLabel.textContent = '-';
+    roomIdInput.value = '';
+    setMemberLabel(roomP1Label, null);
+    setMemberLabel(roomP2Label, null);
+    setMemberLabel(roomSpectatorLabel, null);
+    updateInviteUrl();
+    updateStartUi();
+    updateRoomActionUi();
+    localStorage.removeItem(ROOM_STORAGE_KEY);
+    if (api && typeof api.resetTestMatch === 'function') {
+      api.resetTestMatch();
+    }
+    if (api && typeof api.setRoomSyncConfig === 'function') {
+      api.setRoomSyncConfig({ enabled: false, role: '', battleControlsEnabled: false });
+    }
+    if (message) writeLog(message);
+  }
+
+  function closeCurrentRoom() {
+    if (currentRole !== 'p1') {
+      writeLog('ルーム終了は P1 だけが実行できます。');
+      return;
+    }
+    const ok = confirm('このルームを終了します。P2 と観戦者もルームから外れます。よろしいですか？');
+    if (!ok) return;
+    sendRoomActionRequest('close_room', true);
   }
 
   function updateInviteUrl() {
@@ -179,6 +348,7 @@ ${roomLog.textContent}` : line;
     currentRoomId = data.roomId || currentRoomId;
     currentRole = data.role || currentRole;
     currentRoomState = data.roomState || currentRoomState;
+    currentControlRequests = data.controlRequests || currentControlRequests;
     currentRoomLabel.textContent = currentRoomId || '-';
     currentRoleLabel.textContent = normalizeRole(currentRole);
     currentRoomStateLabel.textContent = currentRoomState || '-';
@@ -188,6 +358,7 @@ ${roomLog.textContent}` : line;
     updateInviteUrl();
     roomIdInput.value = currentRoomId || roomIdInput.value;
     updateStartUi(data);
+    updateRoomActionUi();
     configureRoomSync();
     saveSession();
   }
@@ -278,30 +449,6 @@ ${roomLog.textContent}` : line;
     socket.send(JSON.stringify(payload));
   }
 
-  function clearActionResponseTimer() {
-    if (actionResponseTimer) {
-      clearTimeout(actionResponseTimer);
-      actionResponseTimer = null;
-    }
-  }
-
-  function releasePendingUiLock() {
-    clearActionResponseTimer();
-    const api = window.REDVEIN_ROOM_API;
-    if (api && typeof api.notifyRoomRequestError === 'function') {
-      api.notifyRoomRequestError();
-    }
-  }
-
-  function armActionResponseTimer(label) {
-    clearActionResponseTimer();
-    actionResponseTimer = window.setTimeout(() => {
-      releasePendingUiLock();
-      writeLog(`${label || '操作'}の応答が遅れているため、操作ロックを解除しました。もう一度お試しください。`);
-      configureRoomSync();
-    }, 5000);
-  }
-
   function currentRoleToPlayerKey() {
     if (currentRole === 'p1') return 'player1';
     if (currentRole === 'p2') return 'player2';
@@ -318,14 +465,6 @@ ${roomLog.textContent}` : line;
       roomId: currentRoomId,
       snapshot: api.exportRoomSyncSnapshot(),
     });
-  }
-
-  function schedulePostAttackRefresh(actionPlayerKey, delayMs = 0) {
-    const waitMs = Math.max(0, Number(delayMs || 0));
-    window.setTimeout(() => {
-      syncPublicStateIfActor(actionPlayerKey);
-      configureRoomSync();
-    }, waitMs);
   }
 
   function getDisplayName() {
@@ -373,7 +512,6 @@ ${roomLog.textContent}` : line;
       role: currentRole,
       battleControlsEnabled: getBattleControlsEnabled(),
       onSetupPlaceRequest: ({ player, cardId, targetIndex }) => {
-        armActionResponseTimer('配置');
         sendMessage({
           type: 'place_setup_unit',
           roomId: currentRoomId,
@@ -383,7 +521,6 @@ ${roomLog.textContent}` : line;
         });
       },
       onMoveRequest: ({ player, unitId, sourceIndex, targetIndex }) => {
-        armActionResponseTimer('移動');
         sendMessage({
           type: 'move_unit',
           roomId: currentRoomId,
@@ -394,7 +531,6 @@ ${roomLog.textContent}` : line;
         });
       },
       onAttackRequest: ({ player, unitId, sourceIndex, targetIndex }) => {
-        armActionResponseTimer('攻撃');
         sendMessage({
           type: 'attack_unit',
           roomId: currentRoomId,
@@ -405,7 +541,6 @@ ${roomLog.textContent}` : line;
         });
       },
       onItemUseRequest: ({ player, cardId, targetIndex }) => {
-        armActionResponseTimer('アイテム使用');
         sendMessage({
           type: 'use_item',
           roomId: currentRoomId,
@@ -415,7 +550,6 @@ ${roomLog.textContent}` : line;
         });
       },
       onFinishItemPhaseRequest: ({ player }) => {
-        armActionResponseTimer('アイテム終了');
         sendMessage({
           type: 'finish_item_phase',
           roomId: currentRoomId,
@@ -423,7 +557,6 @@ ${roomLog.textContent}` : line;
         });
       },
       onEndTurnRequest: ({ player }) => {
-        armActionResponseTimer('手番終了');
         sendMessage({
           type: 'end_turn',
           roomId: currentRoomId,
@@ -436,8 +569,13 @@ ${roomLog.textContent}` : line;
   function handleGameStarted(data) {
     currentRoomState = data.roomState || 'playing';
     currentBattlePlayer = data.currentPlayer || 'player1';
+    currentControlRequests = {
+      rematch: { p1: false, p2: false },
+      reset: { p1: false, p2: false },
+    };
     currentRoomStateLabel.textContent = currentRoomState;
     updateStartUi();
+    updateRoomActionUi();
     updateLegacyBoardUi(true);
     const api = window.REDVEIN_ROOM_API;
     if (!api || typeof api.startMatchFromDeckData !== 'function') {
@@ -460,7 +598,6 @@ ${roomLog.textContent}` : line;
 
   function handleServerMessage(data) {
     if (data.type === 'room_joined') {
-      clearActionResponseTimer();
       clearReconnectTimer();
       reconnectToken = data.reconnectToken || reconnectToken;
       currentRole = data.role || currentRole;
@@ -474,19 +611,16 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'room_snapshot') {
-      clearActionResponseTimer();
       applyRoomSnapshot(data);
       return;
     }
 
     if (data.type === 'game_started') {
-      clearActionResponseTimer();
       handleGameStarted(data);
       return;
     }
 
     if (data.type === 'setup_unit_placed') {
-      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (data.phase === 'battle') {
@@ -502,7 +636,6 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'move_applied') {
-      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (api && typeof api.applyRoomMove === 'function') {
@@ -514,22 +647,17 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'attack_applied') {
-      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (api && typeof api.applyRoomAttack === 'function') {
         api.applyRoomAttack(data);
       }
-      const fxDelayFromApi = api && typeof api.getCombatFxHoldMsRemaining === 'function'
-        ? Number(api.getCombatFxHoldMsRemaining() || 0)
-        : 0;
-      const fxDelay = Math.max(Number(data.fxHoldMs || 0), fxDelayFromApi) + 160;
-      schedulePostAttackRefresh(data.player, fxDelay);
+      syncPublicStateIfActor(data.player);
+      configureRoomSync();
       return;
     }
 
     if (data.type === 'item_used') {
-      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (api && typeof api.applyRoomItemUse === 'function') {
@@ -541,7 +669,6 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'item_phase_finished') {
-      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (api && typeof api.applyRoomFinishItemPhase === 'function') {
@@ -553,7 +680,6 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'turn_ended') {
-      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (api && typeof api.applyRoomEndTurn === 'function') {
@@ -565,7 +691,6 @@ ${roomLog.textContent}` : line;
     }
 
     if (data.type === 'battle_state_synced') {
-      clearActionResponseTimer();
       const api = window.REDVEIN_ROOM_API;
       currentBattlePlayer = data.currentPlayer || currentBattlePlayer;
       if (api && typeof api.applyRoomStateSync === 'function') {
@@ -575,14 +700,19 @@ ${roomLog.textContent}` : line;
       return;
     }
 
+    if (data.type === 'room_closed') {
+      leaveClosedRoomLocally(data.message || 'ルームが終了しました。');
+      return;
+    }
+
     if (data.type === 'server_notice') {
       writeLog(data.message || 'サーバー通知');
       return;
     }
 
     if (data.type === 'error') {
-      releasePendingUiLock();
       writeLog(`エラー: ${data.message || '不明なエラー'}`);
+      updateRoomActionUi();
     }
   }
 
@@ -748,8 +878,10 @@ ${roomLog.textContent}` : line;
 
   history.pushState({ redveinLock: true }, '', location.href);
 
+  ensureRoomActionPanel();
   updateLegacyBoardUi(false);
   updateStartUi();
+  updateRoomActionUi();
   configureRoomSync();
   reconnectIfPossible();
 })();

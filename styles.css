@@ -1522,3 +1522,31 @@ body.log-hidden .floating-log-panel {
   color: var(--accent-2);
   font-weight: 600;
 }
+
+
+.room-action-box {
+  margin-top: 12px;
+}
+.room-action-buttons {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.room-action-status {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(161, 29, 63, 0.14);
+  border: 1px solid rgba(161, 29, 63, 0.28);
+  color: #f5dfe5;
+  line-height: 1.5;
+  font-size: 13px;
+}
+.button.danger {
+  border-color: rgba(214, 68, 93, 0.55);
+  color: #ffd9df;
+  background: linear-gradient(180deg, rgba(90, 12, 22, 0.72), rgba(56, 8, 15, 0.9));
+}
+.button.danger:hover:not(:disabled) {
+  box-shadow: 0 0 0 1px rgba(214, 68, 93, 0.35), 0 12px 24px rgba(112, 16, 31, 0.28);
+}
