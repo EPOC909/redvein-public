@@ -1132,12 +1132,12 @@ function playItemImpactFx(card, fx = {}, visual = null, startDelay = 0) {
         spawnDamagePopup(index, Math.max(1, amount || 1), {
           label: `+${Math.max(1, amount || 1)}`,
           heavy: amount >= 3,
+          tone: 'heal',
         });
         return;
       }
       if (kind === 'guard' || impact.blocked) {
-        pulseCellClass(index, 'rv-itemfx-shield', 760);
-        spawnDamagePopup(index, 0, { label: impact.label || 'GUARD', heavy: true });
+        applyDamageFxAtIndex(index, 0, { label: impact.label || 'GUARD', heavy: true, blocked: true });
         return;
       }
       if (kind === 'buff') {
@@ -1145,9 +1145,10 @@ function playItemImpactFx(card, fx = {}, visual = null, startDelay = 0) {
         spawnItemCellWord(index, impact.label || fallbackVisual?.cellWord || 'BOOST', tone, 0);
         return;
       }
-      applyDamageFxAtIndex(index, Math.max(1, amount || 1), {
+      applyDamageFxAtIndex(index, Math.max(0, amount || 0), {
         heavy: !!impact.heavy || !!impact.defeated || amount >= 3,
-        label: impact.label || (amount > 0 ? `-${amount}` : (fallbackVisual?.cellWord || 'HIT')),
+        label: impact.label || (amount > 0 ? undefined : (fallbackVisual?.cellWord || 'HIT')),
+        reduced: Number(impact.reduced || 0),
       });
       if (impact.defeated && impact.visualEntry) {
         rememberCombatFxTimer(setTimeout(() => {
@@ -1345,6 +1346,8 @@ function injectCombatFxStyles() {
       white-space: nowrap;
     }
     .board-cell .rv-fx-damage-pop {
+      --rv-pop-color: #fff4f6;
+      --rv-pop-glow: rgba(255, 80, 114, 0.26);
       position: absolute;
       left: 50%;
       top: 12%;
@@ -1354,14 +1357,33 @@ function injectCombatFxStyles() {
       font-size: 22px;
       font-weight: 900;
       letter-spacing: 0.02em;
-      color: #fff4f6;
-      text-shadow: 0 3px 18px rgba(0, 0, 0, 0.38), 0 0 16px rgba(255, 80, 114, 0.26);
+      color: var(--rv-pop-color);
+      text-shadow: 0 3px 18px rgba(0, 0, 0, 0.38), 0 0 16px var(--rv-pop-glow);
       animation: rvFxDamagePop 0.82s ease-out forwards;
       white-space: nowrap;
     }
     .board-cell .rv-fx-damage-pop.rv-fx-damage-heavy {
       font-size: 24px;
-      color: #ffe0e8;
+    }
+    .board-cell .rv-fx-damage-pop.rv-tone-damage {
+      --rv-pop-color: #ff8ea8;
+      --rv-pop-glow: rgba(255, 80, 114, 0.34);
+    }
+    .board-cell .rv-fx-damage-pop.rv-tone-heal {
+      --rv-pop-color: #92ffbf;
+      --rv-pop-glow: rgba(90, 235, 154, 0.34);
+    }
+    .board-cell .rv-fx-damage-pop.rv-tone-reduce {
+      --rv-pop-color: #8ac5ff;
+      --rv-pop-glow: rgba(95, 170, 255, 0.34);
+    }
+    .board-cell .rv-fx-damage-pop.rv-tone-guard {
+      --rv-pop-color: #d8ebff;
+      --rv-pop-glow: rgba(122, 192, 255, 0.38);
+    }
+    .board-cell .rv-fx-damage-pop.rv-tone-buff {
+      --rv-pop-color: #ffe08d;
+      --rv-pop-glow: rgba(255, 212, 92, 0.34);
     }
     .board-cell .rv-fx-defeat-ghost {
       position: absolute;
@@ -1536,8 +1558,12 @@ function spawnDamagePopup(index, amount, options = {}) {
   if (!cell) return;
   const popup = document.createElement('div');
   popup.className = 'rv-fx-damage-pop';
+  const tone = String(options.tone || '').trim();
+  if (tone) popup.classList.add(`rv-tone-${tone}`);
   if (Number(amount) >= 3 || options.heavy) popup.classList.add('rv-fx-damage-heavy');
   popup.textContent = options.label || `-${amount}`;
+  if (Number.isFinite(Number(options.xOffset))) popup.style.marginLeft = `${Number(options.xOffset)}px`;
+  if (Number.isFinite(Number(options.yOffset))) popup.style.marginTop = `${Number(options.yOffset)}px`;
   cell.appendChild(popup);
   rememberCombatFxTimer(setTimeout(() => {
     popup.remove();
@@ -1573,10 +1599,45 @@ function spawnDefeatGhost(index, entry) {
 }
 
 function applyDamageFxAtIndex(index, amount, options = {}) {
-  pulseCellClass(index, 'rv-fx-target-impact', 520);
-  pulseCellClass(index, 'rv-fx-target-hit', 600);
-  const safeAmount = Math.max(1, Number(amount || 1));
-  spawnDamagePopup(index, safeAmount, options);
+  const safeAmount = Math.max(0, Number(amount || 0));
+  const reducedAmount = Math.max(0, Number(options.reduced || 0));
+  const blocked = !!options.blocked;
+  if (blocked) {
+    pulseCellClass(index, 'rv-itemfx-shield', 700);
+    spawnDamagePopup(index, 0, {
+      label: options.label || 'GUARD',
+      heavy: true,
+      tone: options.tone || 'guard',
+    });
+    return;
+  }
+  if (safeAmount > 0) {
+    pulseCellClass(index, 'rv-fx-target-impact', 520);
+    pulseCellClass(index, 'rv-fx-target-hit', 600);
+    spawnDamagePopup(index, safeAmount, {
+      ...options,
+      label: options.label || `-${safeAmount}`,
+      tone: options.tone || 'damage',
+    });
+  } else if (options.label) {
+    spawnDamagePopup(index, 0, {
+      ...options,
+      tone: options.tone || 'damage',
+    });
+  }
+  if (reducedAmount > 0) {
+    pulseCellClass(index, 'rv-itemfx-shield', 700);
+    const showBlueOnly = safeAmount <= 0;
+    rememberCombatFxTimer(setTimeout(() => {
+      spawnDamagePopup(index, reducedAmount, {
+        label: options.reductionLabel || `-${reducedAmount}`,
+        heavy: reducedAmount >= 3,
+        tone: 'reduce',
+        xOffset: showBlueOnly ? 0 : 28,
+        yOffset: showBlueOnly ? 0 : 24,
+      });
+    }, showBlueOnly ? 0 : 70));
+  }
 }
 
 function playResolvedAttackFxSequence(sourceIndex, hits = [], options = {}) {
@@ -1591,15 +1652,12 @@ function playResolvedAttackFxSequence(sourceIndex, hits = [], options = {}) {
   resolvedHits.forEach((hit, order) => {
     const delay = 140 + (order * 220);
     rememberCombatFxTimer(setTimeout(() => {
-      const label = hit.label || (hit.blocked ? 'GUARD' : (hit.damage > 0 ? `-${hit.damage}` : 'HIT'));
-      if (hit.blocked) {
-        pulseCellClass(hit.index, 'rv-fx-target-impact', 560);
-        spawnDamagePopup(hit.index, 0, { label, heavy: true });
-        return;
-      }
-      applyDamageFxAtIndex(hit.index, Math.max(1, Number(hit.damage || 1)), {
+      const primaryLabel = hit.blocked ? (hit.label || 'GUARD') : (hit.damage > 0 ? (hit.label || undefined) : (hit.label || undefined));
+      applyDamageFxAtIndex(hit.index, Math.max(0, Number(hit.damage || 0)), {
         heavy: !!hit.heavy || !!hit.defeated || Number(hit.damage || 0) >= 3,
-        label,
+        label: primaryLabel,
+        blocked: !!hit.blocked,
+        reduced: Number(hit.reduced || 0),
       });
       if (hit.defeated && hit.visualEntry) {
         rememberCombatFxTimer(setTimeout(() => {
@@ -3552,13 +3610,15 @@ function canConfirmSelectedItem(card) {
 
 function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
   const defender = matchState.board[targetIndex];
-  if (!defender) return { defeated: false, damage: 0 };
+  if (!defender) return { defeated: false, damage: 0, reduced: 0, blocked: false };
   const ignoreReduction = !!options.ignoreReduction;
   const hasExplicitCredit = Object.prototype.hasOwnProperty.call(options, 'creditPlayerKey');
   const creditPlayerKey = hasExplicitCredit ? options.creditPlayerKey : matchState.currentPlayer;
   const reductionParts = ignoreReduction ? [] : getUnitDamageReductionParts(defender, targetIndex);
   const totalReduction = reductionParts.reduce((sum, part) => sum + Number(part.value || 0), 0);
-  const actualDamage = ignoreReduction ? Math.max(0, damage) : Math.max(0, damage - totalReduction);
+  const requestedDamage = Math.max(0, Number(damage || 0));
+  const reduced = ignoreReduction ? 0 : Math.min(requestedDamage, totalReduction);
+  const actualDamage = ignoreReduction ? requestedDamage : Math.max(0, requestedDamage - totalReduction);
 
   if (ignoreReduction) {
     addLog(`${sourceLabel} ${defender.name} に軽減無視で ${actualDamage} ダメージ`);
@@ -3569,7 +3629,7 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
   if (actualDamage > 0 && canNegateDamageOnce(defender)) {
     defender.negateDamageUsed = true;
     addLog(`${defender.name} の「試合中1回ダメージ無効」が発動しました`);
-    return { blocked: true, defeated: false, damage: 0 };
+    return { blocked: true, defeated: false, damage: 0, reduced };
   }
 
   if (!ignoreReduction && Number(defender.singleUseDamageReduction || 0) > 0) {
@@ -3588,10 +3648,10 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
     if (!options.suppressDefeatSfx) playSfx('defeat');
     addLog(`${defender.name} が撃破されました`);
     queueUnitRevive(defender);
-    return { defeated: true, damage: actualDamage };
+    return { defeated: true, damage: actualDamage, reduced, blocked: false };
   }
   addLog(`${defender.name} の残りHPは ${defender.currentHp}`);
-  return { defeated: false, damage: actualDamage };
+  return { defeated: false, damage: actualDamage, reduced, blocked: false };
 }
 
 
@@ -3626,6 +3686,8 @@ function applyAttackDamageToIndex(attacker, targetIndex, damage, options = {}) {
       addLog(`${kingAlive.name} が反撃し、${attacker.name} に 1 ダメージを与えます`);
       const counterResult = applyDamageToIndex(attackerAliveIndex, 1, `${kingAlive.name} の反撃で`, { creditPlayerKey: kingAlive.owner });
       counterDamage = Number(counterResult.damage || 0);
+      var counterReduced = Number(counterResult.reduced || 0);
+      var counterBlocked = !!counterResult.blocked;
     }
     return {
       ...result,
@@ -3634,6 +3696,8 @@ function applyAttackDamageToIndex(attacker, targetIndex, damage, options = {}) {
       visualEntry: interceptedVisualEntry,
       counterTargetIndex: attackerAliveIndex >= 0 ? attackerAliveIndex : null,
       counterDamage,
+      counterReduced,
+      counterBlocked,
     };
   }
   const damageOptions = Object.prototype.hasOwnProperty.call(options, 'creditPlayerKey')
@@ -3691,13 +3755,13 @@ function applyItemEffect(card, playerKey) {
       if (targetIndex == null) return false;
       const visualEntry = createCombatVisualEntry(matchState.board[targetIndex], targetIndex);
       const result = applyDamageToIndex(targetIndex, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`, { suppressDefeatSfx: true });
-      return success({ targets: [targetIndex], amount: Number(result.damage || 0), defeated: !!result.defeated, impacts: [{ index: targetIndex, kind: result.blocked ? 'guard' : 'damage', amount: Number(result.damage || 0), blocked: !!result.blocked, defeated: !!result.defeated, visualEntry, label: result.blocked ? 'GUARD' : undefined }] });
+      return success({ targets: [targetIndex], amount: Number(result.damage || 0), defeated: !!result.defeated, impacts: [{ index: targetIndex, kind: result.blocked ? 'guard' : 'damage', amount: Number(result.damage || 0), reduced: Number(result.reduced || 0), blocked: !!result.blocked, defeated: !!result.defeated, visualEntry, label: result.blocked ? 'GUARD' : undefined }] });
     }
     case 'damage_single_2': {
       if (targetIndex == null) return false;
       const visualEntry = createCombatVisualEntry(matchState.board[targetIndex], targetIndex);
       const result = applyDamageToIndex(targetIndex, 2 + effectBoost, `${actorLabel}: ${card.card_name} で`, { suppressDefeatSfx: true });
-      return success({ targets: [targetIndex], amount: Number(result.damage || 0), defeated: !!result.defeated, impacts: [{ index: targetIndex, kind: result.blocked ? 'guard' : 'damage', amount: Number(result.damage || 0), blocked: !!result.blocked, defeated: !!result.defeated, visualEntry, label: result.blocked ? 'GUARD' : undefined }] });
+      return success({ targets: [targetIndex], amount: Number(result.damage || 0), defeated: !!result.defeated, impacts: [{ index: targetIndex, kind: result.blocked ? 'guard' : 'damage', amount: Number(result.damage || 0), reduced: Number(result.reduced || 0), blocked: !!result.blocked, defeated: !!result.defeated, visualEntry, label: result.blocked ? 'GUARD' : undefined }] });
     }
     case 'destroy_single': {
       if (targetIndex == null) return false;
@@ -3774,7 +3838,7 @@ function applyItemEffect(card, playerKey) {
       affected.forEach((idx) => {
         const visualEntry = createCombatVisualEntry(matchState.board[idx], idx);
         const result = applyDamageToIndex(idx, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`, { suppressDefeatSfx: true });
-        impacts.push({ index: idx, kind: result.blocked ? 'guard' : 'damage', amount: Number(result.damage || 0), blocked: !!result.blocked, defeated: !!result.defeated, visualEntry, label: result.blocked ? 'GUARD' : undefined });
+        impacts.push({ index: idx, kind: result.blocked ? 'guard' : 'damage', amount: Number(result.damage || 0), reduced: Number(result.reduced || 0), blocked: !!result.blocked, defeated: !!result.defeated, visualEntry, label: result.blocked ? 'GUARD' : undefined });
       });
       return success({ targets: affected, centerIndex: targetIndex, amount: 1 + effectBoost, impacts });
     }
@@ -4922,20 +4986,22 @@ function applyPendingAttack(pendingAction) {
     attackFxHits.push({
       index: resolvedTargetIndex,
       damage: Number(result.damage || 0),
+      reduced: Number(result.reduced || 0),
       defeated: !!result.defeated,
       blocked: !!result.blocked,
       heavy: !!result.defeated || Number(result.damage || 0) >= 3,
-      label: result.blocked ? 'GUARD' : (Number(result.damage || 0) > 0 ? `-${result.damage}` : (result.intercepted ? 'HIT' : 'HIT')),
+      label: result.blocked ? 'GUARD' : (Number(result.damage || 0) > 0 ? undefined : (result.intercepted ? 'HIT' : 'HIT')),
       visualEntry: result.visualEntry || null,
     });
     if (Number.isInteger(result.counterTargetIndex) && result.counterTargetIndex >= 0 && Number(result.counterDamage || 0) > 0) {
       attackFxHits.push({
         index: result.counterTargetIndex,
         damage: Number(result.counterDamage || 0),
+        reduced: Number(result.counterReduced || 0),
         defeated: false,
-        blocked: false,
+        blocked: !!result.counterBlocked,
         heavy: false,
-        label: `-${result.counterDamage}`,
+        label: result.counterBlocked ? 'GUARD' : undefined,
         visualEntry: null,
       });
     }
