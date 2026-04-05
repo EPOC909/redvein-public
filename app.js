@@ -854,7 +854,10 @@ function playItemPresentationSequence(card, fx = {}) {
   const pulseMs = Math.max(420, Number(visual.pulseMs || 940));
   const staggerMs = Math.max(0, Number(visual.staggerMs || 0));
   const pulseTailMs = targetCount > 0 ? ((targetCount - 1) * staggerMs) + pulseMs : 0;
-  const totalMs = effectStartDelay + Math.max(overlayMs, pulseTailMs) + 180;
+  const impactTailMs = Array.isArray(fx.impacts) && fx.impacts.length
+    ? 180 + ((fx.impacts.length - 1) * Math.max(70, staggerMs))
+    : 0;
+  const totalMs = effectStartDelay + Math.max(overlayMs, pulseTailMs, impactTailMs) + 220;
   holdCombatFxFor(totalMs);
   showItemShowcase(card, { displayMs: showcaseMs });
   rememberCombatFxTimer(setTimeout(() => {
@@ -1103,6 +1106,59 @@ function spawnItemCellWord(index, text, tone = '', delay = 0) {
   }
 }
 
+function scheduleSfx(kind, delayMs = 0) {
+  const run = () => playSfx(kind);
+  if (delayMs > 0) {
+    rememberCombatFxTimer(setTimeout(run, delayMs));
+  } else {
+    run();
+  }
+}
+
+function playItemImpactFx(card, fx = {}, visual = null, startDelay = 0) {
+  const impacts = Array.isArray(fx.impacts) ? fx.impacts.filter((impact) => Number.isInteger(Number(impact?.index))) : [];
+  if (!impacts.length) return;
+  const fallbackVisual = visual || buildItemEffectVisual(card, fx);
+  const staggerMs = Math.max(70, Number(fallbackVisual?.staggerMs || 70));
+  impacts.forEach((impact, order) => {
+    const index = Number(impact.index);
+    const delay = Math.max(0, Number(startDelay || 0)) + 80 + (order * staggerMs);
+    rememberCombatFxTimer(setTimeout(() => {
+      const amount = Math.max(0, Number(impact.amount || 0));
+      const kind = String(impact.kind || 'effect');
+      const tone = String(impact.tone || fallbackVisual?.cellTone || '');
+      if (kind === 'heal') {
+        pulseCellClass(index, 'rv-itemfx-heal', 760);
+        spawnDamagePopup(index, Math.max(1, amount || 1), {
+          label: `+${Math.max(1, amount || 1)}`,
+          heavy: amount >= 3,
+        });
+        return;
+      }
+      if (kind === 'guard' || impact.blocked) {
+        pulseCellClass(index, 'rv-itemfx-shield', 760);
+        spawnDamagePopup(index, 0, { label: impact.label || 'GUARD', heavy: true });
+        return;
+      }
+      if (kind === 'buff') {
+        pulseCellClass(index, fallbackVisual?.cellClass || 'rv-itemfx-power', 760);
+        spawnItemCellWord(index, impact.label || fallbackVisual?.cellWord || 'BOOST', tone, 0);
+        return;
+      }
+      applyDamageFxAtIndex(index, Math.max(1, amount || 1), {
+        heavy: !!impact.heavy || !!impact.defeated || amount >= 3,
+        label: impact.label || (amount > 0 ? `-${amount}` : (fallbackVisual?.cellWord || 'HIT')),
+      });
+      if (impact.defeated && impact.visualEntry) {
+        rememberCombatFxTimer(setTimeout(() => {
+          spawnDefeatGhost(index, impact.visualEntry);
+          scheduleSfx('defeat', 0);
+        }, 120));
+      }
+    }, delay));
+  });
+}
+
 function buildItemEffectVisual(card, fx = {}) {
   const effectType = String(card?.effect_type || '');
   const name = String(card?.card_name || '');
@@ -1171,6 +1227,8 @@ function playItemEffectSequence(card, fx = {}) {
     root.classList.remove('rv-item-effect-visible');
     void root.offsetWidth;
     root.classList.add('rv-item-effect-visible');
+    scheduleSfx('item', 20);
+    playItemImpactFx(card, fx, visual, 24);
     rememberCombatFxTimer(setTimeout(() => root.classList.remove('rv-item-effect-visible'), overlayMs));
     rememberCombatFxTimer(setTimeout(() => {
       targets.forEach((index, order) => {
@@ -3527,7 +3585,7 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
     if (creditPlayerKey) {
       getPlayerState(creditPlayerKey).defeated += 1;
     }
-    playSfx('defeat');
+    if (!options.suppressDefeatSfx) playSfx('defeat');
     addLog(`${defender.name} が撃破されました`);
     queueUnitRevive(defender);
     return { defeated: true, damage: actualDamage };
@@ -3598,67 +3656,75 @@ function applyItemEffect(card, playerKey) {
       const before = targetUnit.currentHp;
       const amount = 2 + effectBoost;
       targetUnit.currentHp = Math.min(targetUnit.maxHp, targetUnit.currentHp + amount);
+      const healedAmount = targetUnit.currentHp - before;
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
-      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} を ${targetUnit.currentHp - before} 回復しました${effectBoost > 0 ? '（補給路で +1 強化）' : ''}`);
-      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount });
+      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} を ${healedAmount} 回復しました${effectBoost > 0 ? '（補給路で +1 強化）' : ''}`);
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount, impacts: resolvedIndex >= 0 && healedAmount > 0 ? [{ index: resolvedIndex, kind: 'heal', amount: healedAmount }] : [] });
     }
     case 'full_heal_single': {
       if (!targetUnit) return false;
       const before = targetUnit.currentHp;
       targetUnit.currentHp = targetUnit.maxHp;
+      const healedAmount = targetUnit.currentHp - before;
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
-      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} の HP を全回復しました（+${targetUnit.currentHp - before}）`);
-      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount: targetUnit.currentHp - before });
+      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} の HP を全回復しました（+${healedAmount}）`);
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount: healedAmount, impacts: resolvedIndex >= 0 && healedAmount > 0 ? [{ index: resolvedIndex, kind: 'heal', amount: healedAmount }] : [] });
     }
     case 'heal_all_1': {
       const allies = getLivingUnits(playerKey);
       let healed = 0;
       const targets = [];
+      const impacts = [];
       allies.forEach((unit) => {
         const before = unit.currentHp;
         unit.currentHp = Math.min(unit.maxHp, unit.currentHp + 1 + effectBoost);
-        healed += unit.currentHp - before;
+        const healedAmount = unit.currentHp - before;
+        healed += healedAmount;
         const idx = findUnitIndexByIdOwned(unit.instanceId, unit.owner);
         if (idx >= 0) targets.push(idx);
+        if (idx >= 0 && healedAmount > 0) impacts.push({ index: idx, kind: 'heal', amount: healedAmount });
       });
       addLog(`${actorLabel}: ${card.card_name} で味方全体を回復しました（合計 +${healed}）${effectBoost > 0 ? '（補給路で +1 強化）' : ''}`);
-      return success({ targets, amount: healed });
+      return success({ targets, amount: healed, impacts });
     }
     case 'damage_single_1': {
       if (targetIndex == null) return false;
-      const result = applyDamageToIndex(targetIndex, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`);
-      return success({ targets: [targetIndex], amount: Number(result.damage || 0), defeated: !!result.defeated });
+      const visualEntry = createCombatVisualEntry(matchState.board[targetIndex], targetIndex);
+      const result = applyDamageToIndex(targetIndex, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`, { suppressDefeatSfx: true });
+      return success({ targets: [targetIndex], amount: Number(result.damage || 0), defeated: !!result.defeated, impacts: [{ index: targetIndex, kind: result.blocked ? 'guard' : 'damage', amount: Number(result.damage || 0), blocked: !!result.blocked, defeated: !!result.defeated, visualEntry, label: result.blocked ? 'GUARD' : undefined }] });
     }
     case 'damage_single_2': {
       if (targetIndex == null) return false;
-      const result = applyDamageToIndex(targetIndex, 2 + effectBoost, `${actorLabel}: ${card.card_name} で`);
-      return success({ targets: [targetIndex], amount: Number(result.damage || 0), defeated: !!result.defeated });
+      const visualEntry = createCombatVisualEntry(matchState.board[targetIndex], targetIndex);
+      const result = applyDamageToIndex(targetIndex, 2 + effectBoost, `${actorLabel}: ${card.card_name} で`, { suppressDefeatSfx: true });
+      return success({ targets: [targetIndex], amount: Number(result.damage || 0), defeated: !!result.defeated, impacts: [{ index: targetIndex, kind: result.blocked ? 'guard' : 'damage', amount: Number(result.damage || 0), blocked: !!result.blocked, defeated: !!result.defeated, visualEntry, label: result.blocked ? 'GUARD' : undefined }] });
     }
     case 'destroy_single': {
       if (targetIndex == null) return false;
       const destroyedUnit = matchState.board[targetIndex];
       if (!destroyedUnit) return false;
+      const visualEntry = createCombatVisualEntry(destroyedUnit, targetIndex);
+      const removedHp = Math.max(1, Number(destroyedUnit.currentHp || 1));
       matchState.board[targetIndex] = null;
       clearPendingRedeployForUnit(destroyedUnit);
       getPlayerState(playerKey).defeated += 1;
-      playSfx('defeat');
       addLog(`${actorLabel}: ${card.card_name} で ${destroyedUnit.name} を即座に破壊しました`);
       queueUnitRevive(destroyedUnit);
-      return success({ targets: [targetIndex], defeated: true });
+      return success({ targets: [targetIndex], defeated: true, impacts: [{ index: targetIndex, kind: 'damage', amount: removedHp, defeated: true, visualEntry, label: 'BREAK', heavy: true }] });
     }
     case 'disable_attack_next_round': {
       if (!targetUnit) return false;
       targetUnit.skipAttackTurns = Math.max(targetUnit.skipAttackTurns || 0, 1);
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次の自身の手番で攻撃不可になります`);
-      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [] });
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'SMOKE' }] : [] });
     }
     case 'stun_single_1_turn': {
       if (!targetUnit) return false;
       targetUnit.skipActionTurns = Math.max(Number(targetUnit.skipActionTurns || 0), 1);
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次の自身の手番で行動できなくなります`);
-      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [] });
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'FREEZE' }] : [] });
     }
     case 'buff_move_atk_turn_1': {
       if (!targetUnit) return false;
@@ -3667,7 +3733,7 @@ function applyItemEffect(card, playerKey) {
       targetUnit.tempMoveBuff = (targetUnit.tempMoveBuff || 0) + amount;
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} の ATK/MOVE をこの手番だけ +${amount} しました`);
-      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount });
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount, impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'BOOST' }] : [] });
     }
     case 'shield_single_2_once': {
       if (!targetUnit) return false;
@@ -3675,7 +3741,7 @@ function applyItemEffect(card, playerKey) {
       targetUnit.singleUseDamageReduction = Math.max(Number(targetUnit.singleUseDamageReduction || 0), amount);
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次に受けるダメージを ${amount} 軽減します`);
-      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount });
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount, impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'GUARD' }] : [] });
     }
     case 'move_twice_single': {
       if (!targetUnit || targetUnit.owner !== playerKey) return false;
@@ -3685,7 +3751,7 @@ function applyItemEffect(card, playerKey) {
       matchState.selectedUnitId = targetUnit.instanceId;
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} はこの手番に ${amount} 回移動できます`);
-      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount });
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount, impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'HASTE' }] : [] });
     }
     case 'team_damage_minus_1_until_next_round': {
       const player = getPlayerState(playerKey);
@@ -3696,18 +3762,21 @@ function applyItemEffect(card, playerKey) {
         .map((unit) => findUnitIndexByIdOwned(unit.instanceId, unit.owner))
         .filter((idx) => idx >= 0);
       addLog(`${actorLabel}: ${card.card_name} で味方全体が次の自分のラウンド開始時までダメージ -${amount} になりました`);
-      return success({ targets, amount });
+      return success({ targets, amount, impacts: targets.map((index) => ({ index, kind: 'buff', label: 'GUARD' })) });
     }
     case 'damage_aoe_target_radius_1': {
       if (targetIndex == null) return false;
       const affected = getChebyshevNeighbors(targetIndex, 1)
         .filter((idx) => !!matchState.board[idx]);
       if (!affected.length) return false;
+      const impacts = [];
       addLog(`${actorLabel}: ${card.card_name} が ${formatCellLabel(targetIndex)} を中心に炸裂しました${effectBoost > 0 ? '（補給路で +1 強化）' : ''}`);
       affected.forEach((idx) => {
-        applyDamageToIndex(idx, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`);
+        const visualEntry = createCombatVisualEntry(matchState.board[idx], idx);
+        const result = applyDamageToIndex(idx, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`, { suppressDefeatSfx: true });
+        impacts.push({ index: idx, kind: result.blocked ? 'guard' : 'damage', amount: Number(result.damage || 0), blocked: !!result.blocked, defeated: !!result.defeated, visualEntry, label: result.blocked ? 'GUARD' : undefined });
       });
-      return success({ targets: affected, centerIndex: targetIndex, amount: 1 + effectBoost });
+      return success({ targets: affected, centerIndex: targetIndex, amount: 1 + effectBoost, impacts });
     }
     default:
       addLog(`${actorLabel}: アイテム「${card.card_name}」を使用しました（この効果はまだ手動処理です）`);
@@ -3868,6 +3937,7 @@ function setPendingAction(action) {
 
 function selectItemForUse(cardId) {
   if (matchState.phase !== 'battle' || !isItemWindowOpen() || matchState.turnState.itemUsed) return;
+  roomSyncState.pendingItemUseRequest = false;
   const nextValue = matchState.turnState.selectedItemCardId === cardId ? null : cardId;
   matchState.turnState.selectedItemCardId = nextValue;
   matchState.turnState.selectedItemTargetIndex = null;
@@ -3913,7 +3983,7 @@ function performItemUseLocal(selectedCardId, targetIndex = null, playerKey = mat
   itemState.used = true;
   matchState.turnState.itemUsed = true;
   closeItemWindow();
-  playSfx('item');
+  combatFxSkipNextSnapshotDiff = true;
   renderMatchArea();
   playItemPresentationSequence(card, applied.fx || {});
   if (checkWinByElimination()) return true;
@@ -5105,6 +5175,7 @@ function handleBoardCellClick(index) {
     if (selectedItemCard) {
       const validTargets = getItemSelectableTargets(selectedItemCard, matchState.currentPlayer);
       if (validTargets.includes(index)) {
+        roomSyncState.pendingItemUseRequest = false;
         matchState.turnState.selectedItemTargetIndex = index;
         renderMatchArea();
       }

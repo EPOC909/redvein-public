@@ -537,6 +537,7 @@ function beginTurn(game, playerKey) {
 
 function getRequiredItemTargetType(card) {
   switch (card?.effect_type) {
+    case 'heal_single_2':
     case 'full_heal_single':
     case 'buff_move_atk_turn_1':
     case 'shield_single_2_once':
