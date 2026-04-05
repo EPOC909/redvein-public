@@ -113,6 +113,35 @@ const actionPanels = [
   { container: actionPanelLeft, phaseInfo, selectionInfo, itemConfirmBox, itemConfirmTitle, itemConfirmText, confirmItemUseButton, cancelItemUseButton, actionConfirmBox, actionConfirmTitle, actionConfirmText, confirmActionButton, cancelActionButton, itemPhaseDoneButton, moveModeButton, attackModeButton, endTurnButton, clearSelectionButton },
   { container: actionPanelRight, phaseInfo: phaseInfoRight, selectionInfo: selectionInfoRight, itemConfirmBox: itemConfirmBoxRight, itemConfirmTitle: itemConfirmTitleRight, itemConfirmText: itemConfirmTextRight, confirmItemUseButton: confirmItemUseButtonRight, cancelItemUseButton: cancelItemUseButtonRight, actionConfirmBox: actionConfirmBoxRight, actionConfirmTitle: actionConfirmTitleRight, actionConfirmText: actionConfirmTextRight, confirmActionButton: confirmActionButtonRight, cancelActionButton: cancelActionButtonRight, itemPhaseDoneButton: itemPhaseDoneButtonRight, moveModeButton: moveModeButtonRight, attackModeButton: attackModeButtonRight, endTurnButton: endTurnButtonRight, clearSelectionButton: clearSelectionButtonRight },
 ].filter(panel => panel.phaseInfo);
+const rightActionButtonsGrid = itemPhaseDoneButtonRight?.closest('.action-buttons-grid') || null;
+let itemPhaseDoneButtonRightMirror = null;
+
+function installRightItemPhaseDoneButtonMirror() {
+  if (!rightActionButtonsGrid || !moveModeButtonRight || itemPhaseDoneButtonRightMirror) return;
+  const mirror = document.createElement('button');
+  mirror.type = 'button';
+  mirror.id = 'itemPhaseDoneButtonRightMirror';
+  mirror.className = itemPhaseDoneButtonRight?.className || 'button secondary';
+  mirror.textContent = 'アイテムを使わず次へ';
+  mirror.disabled = true;
+  mirror.setAttribute('aria-label', 'アイテムを使わず次へ');
+  mirror.style.gridColumn = '1 / -1';
+  mirror.classList.add('mirrored-action-button');
+  rightActionButtonsGrid.insertBefore(mirror, moveModeButtonRight);
+  if (itemPhaseDoneButtonRight) {
+    itemPhaseDoneButtonRight.hidden = true;
+    itemPhaseDoneButtonRight.style.display = 'none';
+    itemPhaseDoneButtonRight.style.visibility = 'hidden';
+    itemPhaseDoneButtonRight.tabIndex = -1;
+    itemPhaseDoneButtonRight.setAttribute('aria-hidden', 'true');
+  }
+  actionPanels.forEach((panel, index) => {
+    if (index === 1) panel.itemPhaseDoneButton = mirror;
+  });
+  itemPhaseDoneButtonRightMirror = mirror;
+}
+
+installRightItemPhaseDoneButtonMirror();
 
 let allCards = [];
 let cardMap = new Map();
@@ -6231,6 +6260,7 @@ resetMatchButton.addEventListener('click', () => {
   resetTestMatch();
 });
 itemPhaseDoneButton.addEventListener('click', () => { if (isRoomBattleLocked()) return; finishItemPhase(); });
+itemPhaseDoneButtonRightMirror?.addEventListener('click', () => { if (isRoomBattleLocked()) return; finishItemPhase(); });
 itemPhaseDoneButtonRight?.addEventListener('click', () => { if (isRoomBattleLocked()) return; finishItemPhase(); });
 confirmItemUseButton?.addEventListener('click', () => { if (isRoomBattleLocked()) return; confirmSelectedItemUse(); });
 confirmItemUseButtonRight?.addEventListener('click', () => { if (isRoomBattleLocked()) return; confirmSelectedItemUse(); });
