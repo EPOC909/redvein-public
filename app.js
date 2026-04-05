@@ -1852,6 +1852,108 @@ function scheduleSfx(kind, delayMs = 0) {
   }
 }
 
+
+
+function getCardSignatureProfile(cardId, context = '', extra = {}) {
+  const ctx = String(context || '');
+  switch (String(cardId || '')) {
+    case 'RV-007':
+      if (ctx === 'postmove' || ctx === 'move') {
+        return { mark: 'AMBUSH', word: 'AMBUSH', tone: 'power', cellClass: 'rv-itemfx-smoke', duration: 860 };
+      }
+      break;
+    case 'RV-014':
+      if (ctx === 'move') {
+        return { mark: 'SCOUT', word: 'SCOUT', tone: 'haste', cellClass: 'rv-itemfx-haste', duration: 760 };
+      }
+      break;
+    case 'RV-028':
+      if (ctx === 'attack' && extra.backstab) {
+        return { mark: 'BACKSTAB', word: 'BACKSTAB', tone: 'fire', cellClass: 'rv-itemfx-smoke', duration: 920 };
+      }
+      break;
+    case 'RV-030':
+      if (ctx === 'move' || ctx === 'attack') {
+        return { mark: 'CHARGE', word: 'CHARGE', tone: 'fire', cellClass: 'rv-itemfx-haste', duration: 820 };
+      }
+      break;
+    case 'RV-039':
+      if (ctx === 'spawn' || ctx === 'attack') {
+        return { mark: 'SHADOW', word: 'SHADOW', tone: 'smoke', cellClass: 'rv-itemfx-smoke', duration: 860 };
+      }
+      if (ctx === 'return') {
+        return { mark: 'RETURN', word: 'SHADOW', tone: 'smoke', cellClass: 'rv-itemfx-smoke', duration: 980 };
+      }
+      break;
+    case 'RV-040':
+      if (ctx === 'spawn') {
+        return { mark: 'INFERNO', word: 'INFERNO', tone: 'fire', cellClass: 'rv-itemfx-fire', duration: 920 };
+      }
+      if (ctx === 'attack') {
+        return { mark: 'INFERNO', word: 'INFERNO', tone: 'fire', cellClass: 'rv-itemfx-fire', duration: 980 };
+      }
+      if (ctx === 'splash') {
+        return { mark: 'BURN', word: 'BURN', tone: 'fire', cellClass: 'rv-itemfx-fire', duration: 760 };
+      }
+      break;
+    case 'RV-042':
+      if (ctx === 'spawn' || ctx === 'attack') {
+        return { mark: 'HOLY', word: 'HOLY', tone: 'heal', cellClass: 'rv-itemfx-bless', duration: 920 };
+      }
+      break;
+    case 'RV-043':
+      if (ctx === 'spawn') {
+        return { mark: 'UNDEAD', word: 'UNDEAD', tone: 'smoke', cellClass: 'rv-itemfx-smoke', duration: 820 };
+      }
+      if (ctx === 'revive') {
+        return { mark: 'REVIVE', word: 'REVIVE', tone: 'heal', cellClass: 'rv-itemfx-heal', duration: 1080, holdMs: 1080 };
+      }
+      break;
+    case 'RV-046':
+      if (ctx === 'spawn' || ctx === 'attack' || ctx === 'buff') {
+        return { mark: 'RAPID', word: 'RAPID', tone: 'haste', cellClass: 'rv-itemfx-haste', duration: 860 };
+      }
+      break;
+    case 'RV-047':
+      if (ctx === 'attack' || ctx === 'buff') {
+        return { mark: 'DRAIN', word: 'DRAIN', tone: 'heal', cellClass: 'rv-itemfx-power', duration: 860 };
+      }
+      break;
+    case 'RV-049':
+      if (ctx === 'spawn') {
+        return { mark: 'BLOOD', word: 'BLOOD', tone: 'power', cellClass: 'rv-itemfx-power', duration: 860 };
+      }
+      if (ctx === 'attack' || ctx === 'buff') {
+        return { mark: 'BLOOD', word: 'BLOOD', tone: 'power', cellClass: 'rv-itemfx-power', duration: 920 };
+      }
+      break;
+    default:
+      break;
+  }
+  return null;
+}
+
+function scheduleCardSignatureFx(index, profile = null, delayMs = 0) {
+  if (!Number.isInteger(Number(index)) || !profile) return 0;
+  const boardIndex = Number(index);
+  const delay = Math.max(0, Number(delayMs || 0));
+  const duration = Math.max(620, Number(profile.duration || 820));
+  const run = () => {
+    if (profile.cellClass) pulseCellClass(boardIndex, profile.cellClass, duration);
+    if (profile.mark) spawnAttackerMark(boardIndex, profile.mark);
+    if (profile.word) spawnItemCellWord(boardIndex, profile.word, profile.tone || '', 40);
+    if (profile.sfx) scheduleSfx(profile.sfx, 0);
+  };
+  if (profile.holdMs) holdCombatFxFor(Number(profile.holdMs || duration));
+  if (delay > 0) {
+    rememberCombatFxTimer(setTimeout(run, delay));
+  } else {
+    run();
+  }
+  return delay + duration;
+}
+
+
 function playItemImpactFx(card, fx = {}, visual = null, startDelay = 0) {
   const impacts = Array.isArray(fx.impacts) ? fx.impacts.filter((impact) => Number.isInteger(Number(impact?.index))) : [];
   if (!impacts.length) return;
@@ -2381,11 +2483,22 @@ function applyDamageFxAtIndex(index, amount, options = {}) {
 function playResolvedAttackFxSequence(sourceIndex, hits = [], options = {}) {
   ensureCombatFxReady();
   const resolvedHits = (Array.isArray(hits) ? hits : []).filter((hit) => Number.isInteger(hit?.index) && hit.index >= 0 && hit.index < 25);
-  const totalDuration = Math.max(960, 420 + (resolvedHits.length * 240));
+  const extraEffects = (Array.isArray(options.extraEffects) ? options.extraEffects : [])
+    .filter((effect) => Number.isInteger(Number(effect?.index)) && Number(effect.index) >= 0 && Number(effect.index) < 25 && effect.profile);
+  const extraTailMs = extraEffects.reduce((maxMs, effect) => {
+    const delay = Math.max(0, Number(effect.delay || 0));
+    const duration = Math.max(620, Number(effect.profile?.duration || effect.duration || 820));
+    return Math.max(maxMs, delay + duration);
+  }, 0);
+  const totalDuration = Math.max(960, 420 + (resolvedHits.length * 240), extraTailMs + 220);
   holdCombatFxFor(totalDuration);
   if (Number.isInteger(sourceIndex) && sourceIndex >= 0) {
-    pulseCellClass(sourceIndex, 'rv-fx-attacker-burst', 760);
+    const pulseClass = options.attackerPulseClass || 'rv-fx-attacker-burst';
+    pulseCellClass(sourceIndex, pulseClass, Math.max(760, Number(options.attackerPulseMs || 760)));
     spawnAttackerMark(sourceIndex, options.attackerLabel || 'ATTACK');
+    if (options.attackerWord) {
+      spawnItemCellWord(sourceIndex, options.attackerWord, options.attackerTone || '', 40);
+    }
   }
   resolvedHits.forEach((hit, order) => {
     const delay = 140 + (order * 220);
@@ -2403,6 +2516,9 @@ function playResolvedAttackFxSequence(sourceIndex, hits = [], options = {}) {
         }, 110));
       }
     }, delay));
+  });
+  extraEffects.forEach((effect) => {
+    scheduleCardSignatureFx(Number(effect.index), effect.profile, Number(effect.delay || 0));
   });
   return totalDuration;
 }
@@ -4028,6 +4144,14 @@ function revivePendingUnitsForPlayer(playerKey) {
     }
     matchState.board[spawnIndex] = createUnitInstance(entry.cardId, playerKey);
     addLog(`${entry.name} が ${formatCellLabel(spawnIndex)} に復活しました`);
+    const revivedUnit = matchState.board[spawnIndex];
+    const reviveSignature = getCardSignatureProfile(revivedUnit?.cardId, 'revive');
+    if (reviveSignature) {
+      holdCombatFxFor(Math.max(900, Number(reviveSignature.holdMs || reviveSignature.duration || 1080)));
+      rememberCombatFxTimer(setTimeout(() => {
+        scheduleCardSignatureFx(spawnIndex, reviveSignature, 0);
+      }, 70));
+    }
   });
 
   matchState.pendingRevives = remaining;
@@ -5573,6 +5697,12 @@ function placeSelectedReserveCard(targetIndex) {
   addLog(`${PLAYER_LABEL[step.player]} が ${(placedCard && placedCard.card_name) || cardId} を配置しました`);
   playSfx('deploy');
 
+  const placedUnit = matchState.board[targetIndex];
+  const placedSignature = getCardSignatureProfile(placedUnit?.cardId, 'spawn');
+  if (placedSignature) {
+    holdCombatFxFor(Math.max(760, Number(placedSignature.holdMs || placedSignature.duration || 820)));
+  }
+
   if (matchState.placedInCurrentStep >= step.count) {
     matchState.setupStepIndex += 1;
     matchState.placedInCurrentStep = 0;
@@ -5588,6 +5718,9 @@ function placeSelectedReserveCard(targetIndex) {
   }
 
   renderMatchArea();
+  if (placedSignature) {
+    scheduleCardSignatureFx(targetIndex, placedSignature, 40);
+  }
 }
 
 function moveSelectedUnit(targetIndex) {
@@ -5641,7 +5774,14 @@ function applyPendingMove(pendingAction) {
   if (isGlobalFieldEffectActive('field_no_attack_after_move')) {
     addLog('環境カード「暴風域」により、移動したユニットはこの手番に攻撃できません');
   }
+  const moveSignature = getCardSignatureProfile(unit.cardId, 'move');
+  if (moveSignature) {
+    holdCombatFxFor(Math.max(720, Number(moveSignature.holdMs || moveSignature.duration || 820)));
+  }
   renderMatchArea();
+  if (moveSignature) {
+    scheduleCardSignatureFx(pendingAction.targetIndex, moveSignature, 40);
+  }
 }
 
 function moveAfterAttackWithSelectedUnit(targetIndex) {
@@ -5698,7 +5838,14 @@ function applyPendingPostAttackMove(pendingAction) {
   clearPendingAction();
   addLog(`${PLAYER_LABEL[unit.owner]} の ${unit.name} が効果で ${pendingAction.fromLabel} から ${pendingAction.toLabel} へ追加移動しました`);
   playSfx('move');
+  const postMoveSignature = getCardSignatureProfile(unit.cardId, 'postmove');
+  if (postMoveSignature) {
+    holdCombatFxFor(Math.max(760, Number(postMoveSignature.holdMs || postMoveSignature.duration || 860)));
+  }
   renderMatchArea();
+  if (postMoveSignature) {
+    scheduleCardSignatureFx(pendingAction.targetIndex, postMoveSignature, 40);
+  }
   endTurn();
 }
 
@@ -5762,8 +5909,12 @@ function applyPendingAttack(pendingAction) {
   const defender = matchState.board[pendingAction.targetIndex];
   if (!attacker || !defender || defender.owner === attacker.owner) return;
 
+  const backstabTriggered = attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, pendingAction.targetIndex, defender.owner);
   let defeatedByAttack = 0;
   const attackFxHits = [];
+  const specialAttackFxQueue = [];
+  let infernoSplashIndices = [];
+  let shadowReturnIndex = null;
   const resolveAttackHit = (targetIndex, damage, options = {}) => {
     const result = applyAttackDamageToIndex(attacker, targetIndex, damage, { ...options, attackerIndex: sourceIndex });
     if (result.defeated) defeatedByAttack += 1;
@@ -5788,6 +5939,13 @@ function applyPendingAttack(pendingAction) {
         heavy: false,
         label: result.counterBlocked ? 'GUARD' : undefined,
         visualEntry: null,
+      });
+    }
+    if (result.intercepted) {
+      specialAttackFxQueue.push({
+        index: resolvedTargetIndex,
+        profile: { mark: 'COUNTER', word: 'COUNTER', tone: 'shield', cellClass: 'rv-itemfx-shield', duration: 860 },
+        delay: 180,
       });
     }
     return result;
@@ -5855,6 +6013,7 @@ function applyPendingAttack(pendingAction) {
       .filter((idx) => !!matchState.board[idx]);
 
     if (aroundTargets.length) {
+      infernoSplashIndices = aroundTargets.slice();
       addLog(`${PLAYER_LABEL[attackerStillAlive.owner]} の ${attackerStillAlive.name} の効果が発動し、周囲1マスの全ユニットに炎が広がります`);
       aroundTargets.forEach((idx) => {
         const splashTarget = matchState.board[idx];
@@ -5891,6 +6050,7 @@ function applyPendingAttack(pendingAction) {
         matchState.board[returnIndex] = matchState.board[currentIndex];
         matchState.board[currentIndex] = null;
         attackerAfterAllEffects = matchState.board[returnIndex];
+        shadowReturnIndex = returnIndex;
         addLog(`${attackerAfterAllEffects.name} は影に紛れ、${formatCellLabel(returnIndex)} に戻りました`);
       } else {
         addLog(`${attackerAfterAllEffects.name} は戻り先の ${formatCellLabel(returnIndex)} が埋まっているため戻れませんでした`);
@@ -5898,9 +6058,43 @@ function applyPendingAttack(pendingAction) {
     }
   }
 
+  const attackerSignature = getCardSignatureProfile(attacker.cardId, 'attack', { backstab: backstabTriggered });
+  const attackerCurrentIndex = findUnitIndexById(pendingAction.unitId);
+  if (infernoSplashIndices.length) {
+    const infernoProfile = getCardSignatureProfile('RV-040', 'splash');
+    infernoSplashIndices.forEach((idx, order) => {
+      specialAttackFxQueue.push({ index: idx, profile: infernoProfile, delay: 300 + (order * 90) });
+    });
+  }
+  if (shadowReturnIndex != null) {
+    const shadowProfile = getCardSignatureProfile('RV-039', 'return');
+    if (shadowProfile) specialAttackFxQueue.push({ index: shadowReturnIndex, profile: shadowProfile, delay: 520 });
+  }
+  if (attackerAfterAllEffects && attackerCurrentIndex >= 0) {
+    if (attackerAfterAllEffects.cardId === 'RV-047') {
+      const drainProfile = getCardSignatureProfile('RV-047', 'buff');
+      if (drainProfile) specialAttackFxQueue.push({ index: attackerCurrentIndex, profile: drainProfile, delay: 380 });
+    }
+    if (attackerAfterAllEffects.cardId === 'RV-049' && defeatedByAttack > 0) {
+      const bloodProfile = getCardSignatureProfile('RV-049', 'buff');
+      if (bloodProfile) specialAttackFxQueue.push({ index: attackerCurrentIndex, profile: bloodProfile, delay: 420 });
+    }
+    if (attackerAfterAllEffects.cardId === 'RV-046') {
+      const rapidProfile = getCardSignatureProfile('RV-046', 'buff');
+      if (rapidProfile) specialAttackFxQueue.push({ index: attackerCurrentIndex, profile: rapidProfile, delay: 360 });
+    }
+  }
+
   combatFxSkipNextSnapshotDiff = true;
   renderMatchArea();
-  const attackFxDuration = playResolvedAttackFxSequence(sourceIndex, attackFxHits, { attackerLabel: 'ATTACK' });
+  const attackFxDuration = playResolvedAttackFxSequence(sourceIndex, attackFxHits, {
+    attackerLabel: attackerSignature?.mark || 'ATTACK',
+    attackerPulseClass: attackerSignature?.cellClass || 'rv-fx-attacker-burst',
+    attackerPulseMs: attackerSignature?.duration || 760,
+    attackerWord: attackerSignature?.word || '',
+    attackerTone: attackerSignature?.tone || '',
+    extraEffects: specialAttackFxQueue,
+  });
 
   const continueAfterAttackFx = () => {
     if (checkWinByElimination()) return;
