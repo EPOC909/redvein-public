@@ -2132,6 +2132,7 @@ function queueRenderAfterCombatFx() {
   combatFxPendingRender = true;
 }
 
+
 function injectCombatFxStyles() {
   if (document.getElementById('redveinCombatFxStyle')) return;
   const style = document.createElement('style');
@@ -2140,9 +2141,122 @@ function injectCombatFxStyles() {
     .board-cell {
       overflow: visible;
     }
+    #boardGrid.rv-hitstop {
+      animation: rvFxBoardHitstop var(--rv-hitstop-ms, 120ms) ease-out 1;
+      transform-origin: center center;
+    }
     .board-cell .unit-card-visual {
       transform-origin: center center;
       will-change: transform, filter, opacity, box-shadow;
+    }
+    .rv-combat-fx-overlay {
+      position: fixed;
+      pointer-events: none;
+      z-index: 1400;
+      overflow: visible;
+      contain: layout style paint;
+    }
+    .rv-combat-fx-overlay .rv-fx-board-flash {
+      position: absolute;
+      inset: -4%;
+      border-radius: 28px;
+      opacity: 0;
+      animation: rvFxBoardFlash 0.32s ease-out forwards;
+      box-shadow: inset 0 0 84px rgba(255, 255, 255, 0.06), 0 0 56px rgba(255, 112, 124, 0.16);
+    }
+    .rv-combat-fx-overlay .rv-fx-board-flash.rv-tone-attack {
+      background: radial-gradient(circle at center, rgba(255, 238, 196, 0.22), rgba(255, 84, 102, 0.16) 48%, rgba(255, 255, 255, 0) 76%);
+    }
+    .rv-combat-fx-overlay .rv-fx-board-flash.rv-tone-shadow {
+      background: radial-gradient(circle at center, rgba(182, 108, 255, 0.2), rgba(72, 32, 120, 0.16) 46%, rgba(255, 255, 255, 0) 74%);
+    }
+    .rv-combat-fx-overlay .rv-fx-board-flash.rv-tone-holy {
+      background: radial-gradient(circle at center, rgba(255, 248, 196, 0.22), rgba(255, 232, 136, 0.15) 48%, rgba(255, 255, 255, 0) 76%);
+    }
+    .rv-combat-fx-overlay .rv-fx-board-flash.rv-tone-inferno {
+      background: radial-gradient(circle at center, rgba(255, 194, 122, 0.22), rgba(255, 92, 52, 0.2) 46%, rgba(255, 255, 255, 0) 74%);
+    }
+    .rv-combat-fx-overlay .rv-fx-board-flash.rv-tone-guard {
+      background: radial-gradient(circle at center, rgba(178, 220, 255, 0.22), rgba(102, 168, 255, 0.16) 46%, rgba(255, 255, 255, 0) 74%);
+    }
+    .rv-combat-fx-overlay .rv-fx-travel {
+      --rv-travel-duration: 320ms;
+      position: absolute;
+      left: 0;
+      top: 0;
+      height: 14px;
+      transform-origin: 0 50%;
+      pointer-events: none;
+      filter: drop-shadow(0 0 16px rgba(255, 255, 255, 0.18));
+      opacity: 0;
+    }
+    .rv-combat-fx-overlay .rv-fx-travel::before,
+    .rv-combat-fx-overlay .rv-fx-travel::after {
+      content: '';
+      position: absolute;
+      inset: 50% auto auto 0;
+      transform: translateY(-50%);
+      pointer-events: none;
+    }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-kind-slash::before,
+    .rv-combat-fx-overlay .rv-fx-travel.rv-kind-pierce::before,
+    .rv-combat-fx-overlay .rv-fx-travel.rv-kind-shadow::before {
+      width: 100%;
+      height: 4px;
+      border-radius: 999px;
+      transform-origin: 0 50%;
+      animation: rvFxTravelLine var(--rv-travel-duration) cubic-bezier(.16,.84,.24,1) forwards;
+    }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-kind-slash::after,
+    .rv-combat-fx-overlay .rv-fx-travel.rv-kind-pierce::after,
+    .rv-combat-fx-overlay .rv-fx-travel.rv-kind-shadow::after,
+    .rv-combat-fx-overlay .rv-fx-travel.rv-kind-projectile::after {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      animation: rvFxTravelHead var(--rv-travel-duration) cubic-bezier(.16,.84,.24,1) forwards;
+      box-shadow: 0 0 22px currentColor;
+    }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-kind-projectile::before {
+      width: 100%;
+      height: 3px;
+      border-radius: 999px;
+      opacity: 0.7;
+      transform-origin: 0 50%;
+      animation: rvFxTravelTrail var(--rv-travel-duration) cubic-bezier(.16,.84,.24,1) forwards;
+    }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-kind-pierce::before {
+      height: 5px;
+    }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-kind-shadow::before {
+      height: 5px;
+      filter: blur(1px);
+    }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-attack { color: #ffd39e; }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-attack::before,
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-attack::after {
+      background: linear-gradient(90deg, rgba(255, 244, 214, 0.0), rgba(255, 217, 140, 0.92) 16%, rgba(255, 132, 98, 0.98) 72%, rgba(255, 255, 255, 0));
+    }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-shadow { color: #bf8cff; }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-shadow::before,
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-shadow::after {
+      background: linear-gradient(90deg, rgba(50, 16, 88, 0.0), rgba(180, 112, 255, 0.96) 18%, rgba(108, 54, 182, 0.96) 74%, rgba(255, 255, 255, 0));
+    }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-inferno { color: #ffb06f; }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-inferno::before,
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-inferno::after {
+      background: linear-gradient(90deg, rgba(98, 22, 14, 0.0), rgba(255, 190, 102, 0.95) 16%, rgba(255, 108, 66, 0.98) 74%, rgba(255, 255, 255, 0));
+    }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-holy { color: #fff0ad; }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-holy::before,
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-holy::after {
+      background: linear-gradient(90deg, rgba(255, 232, 138, 0.0), rgba(255, 252, 220, 0.96) 18%, rgba(255, 222, 118, 0.96) 74%, rgba(255, 255, 255, 0));
+    }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-guard { color: #a8ddff; }
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-guard::before,
+    .rv-combat-fx-overlay .rv-fx-travel.rv-tone-guard::after {
+      background: linear-gradient(90deg, rgba(112, 188, 255, 0.0), rgba(214, 239, 255, 0.96) 18%, rgba(110, 176, 255, 0.96) 74%, rgba(255, 255, 255, 0));
     }
     .board-cell.rv-fx-attacker-burst::after,
     .board-cell.rv-fx-target-impact::after {
@@ -2274,6 +2388,34 @@ function injectCombatFxStyles() {
       animation: rvFxDefeatMark 0.76s ease-out forwards;
       white-space: nowrap;
     }
+    @keyframes rvFxBoardHitstop {
+      0% { transform: scale(1); filter: brightness(1); }
+      40% { transform: scale(1.012); filter: brightness(1.06); }
+      100% { transform: scale(1); filter: brightness(1); }
+    }
+    @keyframes rvFxBoardFlash {
+      0% { opacity: 0; }
+      22% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    @keyframes rvFxTravelLine {
+      0% { opacity: 0; transform: translateY(-50%) scaleX(0.18); filter: brightness(0.92); }
+      16% { opacity: 1; }
+      58% { opacity: 1; transform: translateY(-50%) scaleX(1.02); filter: brightness(1.08); }
+      100% { opacity: 0; transform: translateY(-50%) scaleX(1.08); filter: brightness(0.96); }
+    }
+    @keyframes rvFxTravelHead {
+      0% { opacity: 0; left: 0%; transform: translate(-50%, -50%) scale(0.68); }
+      12% { opacity: 1; }
+      60% { opacity: 1; }
+      100% { opacity: 0; left: 100%; transform: translate(-50%, -50%) scale(1.12); }
+    }
+    @keyframes rvFxTravelTrail {
+      0% { opacity: 0; transform: translateY(-50%) scaleX(0.08); }
+      14% { opacity: 0.9; }
+      80% { opacity: 0.72; transform: translateY(-50%) scaleX(0.98); }
+      100% { opacity: 0; transform: translateY(-50%) scaleX(1.04); }
+    }
     @keyframes rvFxAttackerBurst {
       0% { opacity: 0; transform: scale(0.78); }
       20% { opacity: 1; }
@@ -2318,6 +2460,7 @@ function injectCombatFxStyles() {
   document.head.appendChild(style);
 }
 
+
 function ensureCombatFxReady() {
   if (!document?.head) return;
   injectCombatFxStyles();
@@ -2354,6 +2497,213 @@ function captureTurnVisualSnapshot() {
 function getBoardCellElement(index) {
   return boardGrid?.querySelector(`.board-cell[data-board-index="${index}"]`) || null;
 }
+
+
+function getBoardCellCenter(index) {
+  const cell = getBoardCellElement(index);
+  if (!cell) return null;
+  const rect = cell.getBoundingClientRect();
+  return {
+    x: rect.left + (rect.width / 2),
+    y: rect.top + (rect.height / 2),
+    width: rect.width,
+    height: rect.height,
+    rect,
+  };
+}
+
+function ensureCombatFxOverlay() {
+  if (!document?.body || !boardGrid) return null;
+  let overlay = document.getElementById('redveinCombatFxOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'redveinCombatFxOverlay';
+    overlay.className = 'rv-combat-fx-overlay';
+    document.body.appendChild(overlay);
+  }
+  const rect = boardGrid.getBoundingClientRect();
+  overlay.style.left = `${Math.round(rect.left)}px`;
+  overlay.style.top = `${Math.round(rect.top)}px`;
+  overlay.style.width = `${Math.round(rect.width)}px`;
+  overlay.style.height = `${Math.round(rect.height)}px`;
+  return overlay;
+}
+
+function pulseBoardHitstop(duration = 120) {
+  if (!boardGrid) return;
+  const safeDuration = Math.max(72, Number(duration || 120));
+  boardGrid.style.setProperty('--rv-hitstop-ms', `${safeDuration}ms`);
+  boardGrid.classList.remove('rv-hitstop');
+  void boardGrid.offsetWidth;
+  boardGrid.classList.add('rv-hitstop');
+  rememberCombatFxTimer(setTimeout(() => {
+    boardGrid.classList.remove('rv-hitstop');
+  }, safeDuration + 16));
+}
+
+function spawnBoardFlash(tone = 'attack', duration = 320) {
+  const overlay = ensureCombatFxOverlay();
+  if (!overlay) return;
+  const flash = document.createElement('div');
+  flash.className = `rv-fx-board-flash rv-tone-${tone}`.trim();
+  overlay.appendChild(flash);
+  rememberCombatFxTimer(setTimeout(() => {
+    flash.remove();
+  }, Math.max(260, Number(duration || 320))));
+}
+
+function lungeAttackerVisual(index, targetIndex, profile = {}) {
+  const cell = getBoardCellElement(index);
+  const visual = cell?.querySelector('.unit-card-visual');
+  if (!visual || typeof visual.animate !== 'function') return;
+  const source = getBoardCellCenter(index);
+  const target = getBoardCellCenter(targetIndex);
+  if (!source || !target) return;
+
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  const magnitude = Math.min(Number(profile.lungePx || 38), distance * (profile.projectile ? 0.08 : 0.16));
+  const moveX = (dx / distance) * magnitude;
+  const moveY = (dy / distance) * magnitude;
+  const duration = Math.max(220, Number(profile.lungeDuration || (profile.projectile ? 240 : 320)));
+  const startScale = Number(profile.startScale || 1);
+  const peakScale = Number(profile.peakScale || (profile.projectile ? 1.03 : 1.08));
+
+  try {
+    visual.animate([
+      { transform: `translate3d(0px, 0px, 0px) scale(${startScale})`, filter: 'brightness(1) saturate(1)' },
+      { transform: `translate3d(${moveX}px, ${moveY}px, 0px) scale(${peakScale})`, filter: 'brightness(1.08) saturate(1.05)', offset: 0.34 },
+      { transform: `translate3d(${moveX * 0.24}px, ${moveY * 0.24}px, 0px) scale(1.02)`, filter: 'brightness(1.03) saturate(1.02)', offset: 0.72 },
+      { transform: 'translate3d(0px, 0px, 0px) scale(1)', filter: 'brightness(1) saturate(1)' },
+    ], {
+      duration,
+      easing: 'cubic-bezier(.16,.84,.24,1)',
+      fill: 'none',
+    });
+  } catch (_) {
+    // no-op
+  }
+}
+
+function spawnTravelFx(sourceIndex, targetIndex, profile = {}) {
+  const overlay = ensureCombatFxOverlay();
+  const source = getBoardCellCenter(sourceIndex);
+  const target = getBoardCellCenter(targetIndex);
+  if (!overlay || !source || !target) return;
+
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const length = Math.max(24, Math.hypot(dx, dy));
+  const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+  const kind = String(profile.kind || 'slash');
+  const tone = String(profile.tone || 'attack');
+  const duration = Math.max(220, Number(profile.travelDuration || (kind === 'projectile' ? 360 : 300)));
+
+  const effect = document.createElement('div');
+  effect.className = `rv-fx-travel rv-kind-${kind} rv-tone-${tone}`.trim();
+  effect.style.setProperty('--rv-travel-duration', `${duration}ms`);
+  effect.style.width = `${Math.round(length)}px`;
+  effect.style.left = `${Math.round(source.x - overlay.getBoundingClientRect().left)}px`;
+  effect.style.top = `${Math.round(source.y - overlay.getBoundingClientRect().top)}px`;
+  effect.style.transform = `translateY(-50%) rotate(${angleDeg}deg)`;
+  overlay.appendChild(effect);
+
+  rememberCombatFxTimer(setTimeout(() => {
+    effect.remove();
+  }, duration + 60));
+}
+
+function getAttackPresentationProfile(attacker, sourceIndex, targetIndex, defender, options = {}) {
+  const base = {
+    kind: 'slash',
+    tone: 'attack',
+    projectile: false,
+    lunge: true,
+    travelDuration: 280,
+    hitDelay: 200,
+    staggerMs: 240,
+    hitstopMs: 110,
+    boardFlashDuration: 300,
+    chainFromSource: true,
+  };
+  if (!attacker || !defender) return base;
+
+  if (unitHasEffectType(attacker, 'range_2') || unitHasEffectType(attacker, 'row_range_attack')) {
+    return {
+      ...base,
+      kind: 'projectile',
+      tone: attacker.cardId === 'RV-045' ? 'holy' : 'attack',
+      projectile: true,
+      lunge: false,
+      travelDuration: 360,
+      hitDelay: 270,
+      hitstopMs: 96,
+      boardFlashDuration: 280,
+    };
+  }
+
+  if (attacker.cardId === 'RV-033' || unitHasEffectType(attacker, 'pierce_line_2')) {
+    return {
+      ...base,
+      kind: 'pierce',
+      tone: 'attack',
+      projectile: true,
+      lunge: true,
+      travelDuration: 320,
+      hitDelay: 220,
+      staggerMs: 180,
+      hitstopMs: 108,
+      boardFlashDuration: 300,
+    };
+  }
+
+  if (attacker.cardId === 'RV-039') {
+    return {
+      ...base,
+      kind: 'shadow',
+      tone: 'shadow',
+      projectile: false,
+      lunge: true,
+      travelDuration: 300,
+      hitDelay: 210,
+      hitstopMs: 120,
+      boardFlashDuration: 320,
+    };
+  }
+
+  if (attacker.cardId === 'RV-040') {
+    return {
+      ...base,
+      kind: 'slash',
+      tone: 'inferno',
+      projectile: false,
+      lunge: true,
+      travelDuration: 300,
+      hitDelay: 210,
+      staggerMs: 180,
+      hitstopMs: 124,
+      boardFlashDuration: 340,
+    };
+  }
+
+  if (attacker.cardId === 'RV-028' && options.backstab) {
+    return {
+      ...base,
+      kind: 'shadow',
+      tone: 'shadow',
+      projectile: false,
+      lunge: true,
+      travelDuration: 280,
+      hitDelay: 200,
+      hitstopMs: 118,
+      boardFlashDuration: 300,
+    };
+  }
+
+  return base;
+}
+
 
 function pulseCellClass(index, className, duration = 520) {
   const cell = getBoardCellElement(index);
@@ -2480,18 +2830,26 @@ function applyDamageFxAtIndex(index, amount, options = {}) {
   }
 }
 
+
 function playResolvedAttackFxSequence(sourceIndex, hits = [], options = {}) {
   ensureCombatFxReady();
   const resolvedHits = (Array.isArray(hits) ? hits : []).filter((hit) => Number.isInteger(hit?.index) && hit.index >= 0 && hit.index < 25);
   const extraEffects = (Array.isArray(options.extraEffects) ? options.extraEffects : [])
     .filter((effect) => Number.isInteger(Number(effect?.index)) && Number(effect.index) >= 0 && Number(effect.index) < 25 && effect.profile);
+  const presentation = options.presentation || {};
+  const primaryTargetIndex = resolvedHits[0]?.index;
+  const baseHitDelay = Math.max(140, Number(presentation.hitDelay || 200));
+  const staggerMs = Math.max(140, Number(presentation.staggerMs || 240));
+  const travelDuration = Math.max(220, Number(presentation.travelDuration || 300));
+  const baseAttackDuration = primaryTargetIndex != null ? (baseHitDelay + Math.max(260, resolvedHits.length * staggerMs) + 260) : 960;
   const extraTailMs = extraEffects.reduce((maxMs, effect) => {
     const delay = Math.max(0, Number(effect.delay || 0));
     const duration = Math.max(620, Number(effect.profile?.duration || effect.duration || 820));
     return Math.max(maxMs, delay + duration);
   }, 0);
-  const totalDuration = Math.max(960, 420 + (resolvedHits.length * 240), extraTailMs + 220);
+  const totalDuration = Math.max(1080, baseAttackDuration, extraTailMs + 280);
   holdCombatFxFor(totalDuration);
+
   if (Number.isInteger(sourceIndex) && sourceIndex >= 0) {
     const pulseClass = options.attackerPulseClass || 'rv-fx-attacker-burst';
     pulseCellClass(sourceIndex, pulseClass, Math.max(760, Number(options.attackerPulseMs || 760)));
@@ -2499,10 +2857,31 @@ function playResolvedAttackFxSequence(sourceIndex, hits = [], options = {}) {
     if (options.attackerWord) {
       spawnItemCellWord(sourceIndex, options.attackerWord, options.attackerTone || '', 40);
     }
+    if (primaryTargetIndex != null && presentation.lunge !== false) {
+      rememberCombatFxTimer(setTimeout(() => {
+        lungeAttackerVisual(sourceIndex, primaryTargetIndex, presentation);
+      }, 28));
+    }
+    if (primaryTargetIndex != null) {
+      rememberCombatFxTimer(setTimeout(() => {
+        spawnTravelFx(sourceIndex, primaryTargetIndex, presentation);
+      }, Math.max(34, Math.min(110, Math.floor(baseHitDelay * 0.42)))));
+    }
   }
+
   resolvedHits.forEach((hit, order) => {
-    const delay = 140 + (order * 220);
+    const delay = baseHitDelay + (order * staggerMs);
     rememberCombatFxTimer(setTimeout(() => {
+      if (Number.isInteger(sourceIndex) && sourceIndex >= 0 && Number.isInteger(hit.index) && hit.index >= 0) {
+        if (order > 0 && primaryTargetIndex !== hit.index && presentation.chainFromSource !== false) {
+          spawnTravelFx(sourceIndex, hit.index, {
+            ...presentation,
+            travelDuration: Math.max(220, travelDuration - 40),
+          });
+        }
+      }
+      pulseBoardHitstop(Number(presentation.hitstopMs || 110));
+      spawnBoardFlash(hit.blocked ? 'guard' : (presentation.tone || 'attack'), Number(presentation.boardFlashDuration || 300));
       const primaryLabel = hit.blocked ? (hit.label || 'GUARD') : (hit.damage > 0 ? (hit.label || undefined) : (hit.label || undefined));
       applyDamageFxAtIndex(hit.index, Math.max(0, Number(hit.damage || 0)), {
         heavy: !!hit.heavy || !!hit.defeated || Number(hit.damage || 0) >= 3,
@@ -2517,11 +2896,13 @@ function playResolvedAttackFxSequence(sourceIndex, hits = [], options = {}) {
       }
     }, delay));
   });
+
   extraEffects.forEach((effect) => {
     scheduleCardSignatureFx(Number(effect.index), effect.profile, Number(effect.delay || 0));
   });
   return totalDuration;
 }
+
 
 function findSnapshotIndexByUnitId(snapshot, unitId) {
   if (!Array.isArray(snapshot) || !unitId) return -1;
@@ -6059,6 +6440,7 @@ function applyPendingAttack(pendingAction) {
   }
 
   const attackerSignature = getCardSignatureProfile(attacker.cardId, 'attack', { backstab: backstabTriggered });
+  const attackPresentation = getAttackPresentationProfile(attacker, sourceIndex, pendingAction.targetIndex, defender, { backstab: backstabTriggered });
   const attackerCurrentIndex = findUnitIndexById(pendingAction.unitId);
   if (infernoSplashIndices.length) {
     const infernoProfile = getCardSignatureProfile('RV-040', 'splash');
@@ -6094,6 +6476,7 @@ function applyPendingAttack(pendingAction) {
     attackerWord: attackerSignature?.word || '',
     attackerTone: attackerSignature?.tone || '',
     extraEffects: specialAttackFxQueue,
+    presentation: attackPresentation,
   });
 
   const continueAfterAttackFx = () => {
