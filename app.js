@@ -151,6 +151,8 @@ let itemShowcaseHideTimer = null;
 let combatFxBoardSnapshot = null;
 let combatFxTurnSnapshot = null;
 let combatFxTimers = new Set();
+let pendingCombatFxEvents = [];
+const USE_SNAPSHOT_COMBAT_FX = false;
 
 
 function injectActionGuideStyles() {
@@ -838,6 +840,7 @@ function resetCombatFxTracking() {
   clearCombatFxTimers();
   combatFxBoardSnapshot = null;
   combatFxTurnSnapshot = null;
+  pendingCombatFxEvents = [];
 }
 
 function injectCombatFxStyles() {
@@ -863,12 +866,38 @@ function injectCombatFxStyles() {
     .board-cell.rv-fx-attacker-burst::after {
       border: 2px solid rgba(255, 224, 156, 0.85);
       box-shadow: 0 0 28px rgba(255, 224, 156, 0.34), 0 0 54px rgba(255, 122, 86, 0.26);
-      animation: rvFxAttackerBurst 0.52s ease-out forwards;
+      animation: rvFxAttackerBurst 0.72s ease-out forwards;
+    }
+    .board-cell.rv-fx-super-attack::before {
+      content: 'ATTACK';
+      position: absolute;
+      left: 50%;
+      top: -10px;
+      transform: translateX(-50%);
+      z-index: 8;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(255, 222, 150, 0.95), rgba(255, 129, 91, 0.95));
+      color: #2a0f0f;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.16em;
+      box-shadow: 0 8px 24px rgba(255, 132, 84, 0.38);
+      animation: rvFxLabelFloat 0.76s ease-out forwards;
+      pointer-events: none;
+      white-space: nowrap;
     }
     .board-cell.rv-fx-target-impact::after {
-      background: radial-gradient(circle at center, rgba(255, 226, 166, 0.48), rgba(255, 74, 108, 0.26) 42%, rgba(255, 255, 255, 0) 72%);
-      box-shadow: 0 0 22px rgba(255, 84, 118, 0.28);
-      animation: rvFxTargetImpact 0.44s ease-out forwards;
+      background: radial-gradient(circle at center, rgba(255, 244, 191, 0.72), rgba(255, 74, 108, 0.44) 42%, rgba(255, 255, 255, 0) 72%);
+      box-shadow: 0 0 22px rgba(255, 84, 118, 0.28), 0 0 56px rgba(255, 84, 118, 0.24);
+      animation: rvFxTargetImpact 0.68s ease-out forwards;
+    }
+    .board-cell.rv-fx-target-heavy {
+      box-shadow: 0 0 0 3px rgba(255, 164, 164, 0.35), 0 0 42px rgba(255, 76, 108, 0.28) !important;
+    }
+    .board-cell.rv-fx-target-defeat {
+      box-shadow: 0 0 0 3px rgba(255, 214, 164, 0.45), 0 0 56px rgba(255, 96, 128, 0.36) !important;
+      animation: rvFxDefeatCell 0.96s ease-out forwards;
     }
     .board-cell.rv-fx-target-hit .unit-card-visual {
       animation: rvFxHitShake 0.46s cubic-bezier(.36,.07,.19,.97) both;
@@ -975,6 +1004,16 @@ function injectCombatFxStyles() {
       0% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
       20% { opacity: 1; transform: translate(-50%, -52%) scale(1); }
       100% { opacity: 0; transform: translate(-50%, -66%) scale(0.96); }
+    }
+    @keyframes rvFxLabelFloat {
+      0% { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.82); }
+      18% { opacity: 1; }
+      100% { opacity: 0; transform: translateX(-50%) translateY(-16px) scale(1.04); }
+    }
+    @keyframes rvFxDefeatCell {
+      0% { transform: scale(1); filter: brightness(1); }
+      25% { transform: scale(1.03); filter: brightness(1.18); }
+      100% { transform: scale(1); filter: brightness(1); }
     }
   `;
   document.head.appendChild(style);
@@ -1122,6 +1161,42 @@ function applyCombatFxFromSnapshots(prevBoard, nextBoard, prevTurn, nextTurn) {
     const vanishedAmount = Math.max(1, Number(prevEntry.hp || 1));
     applyDamageFxAtIndex(index, vanishedAmount, { heavy: true, label: `-${vanishedAmount}` });
     spawnDefeatGhost(index, prevEntry);
+  });
+}
+
+function queueCombatFxEvent(event) {
+  if (!event || typeof event !== 'object') return;
+  pendingCombatFxEvents.push(event);
+}
+
+function flushQueuedCombatFx() {
+  ensureCombatFxReady();
+  if (!Array.isArray(pendingCombatFxEvents) || pendingCombatFxEvents.length === 0) return;
+  const events = pendingCombatFxEvents.slice();
+  pendingCombatFxEvents = [];
+  events.forEach((event) => {
+    if (!event || typeof event !== 'object') return;
+    if (event.kind === 'attack' && Number.isInteger(event.attackerIndex)) {
+      pulseCellClass(event.attackerIndex, 'rv-fx-attacker-burst', 760);
+      const attackerCell = getBoardCellElement(event.attackerIndex);
+      if (attackerCell) {
+        attackerCell.classList.add('rv-fx-super-attack');
+        rememberCombatFxTimer(setTimeout(() => attackerCell.classList.remove('rv-fx-super-attack'), 760));
+      }
+    }
+    if (event.kind === 'damage' && Number.isInteger(event.targetIndex)) {
+      applyDamageFxAtIndex(event.targetIndex, Math.max(1, Number(event.amount || 1)), { heavy: !!event.heavy, label: event.label || undefined });
+      const targetCell = getBoardCellElement(event.targetIndex);
+      if (targetCell) {
+        targetCell.classList.add(event.defeated ? 'rv-fx-target-defeat' : 'rv-fx-target-heavy');
+        rememberCombatFxTimer(setTimeout(() => {
+          targetCell.classList.remove('rv-fx-target-defeat', 'rv-fx-target-heavy');
+        }, event.defeated ? 980 : 820));
+      }
+      if (event.defeated) {
+        spawnDefeatGhost(event.targetIndex, event.entry || null);
+      }
+    }
   });
 }
 
@@ -2790,8 +2865,26 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
     addLog(`${defender.name} の防護符が発動しました`);
   }
 
+  const defeatedEntry = {
+    instanceId: defender.instanceId,
+    cardId: defender.cardId,
+    name: defender.name,
+    owner: defender.owner,
+    hp: defender.currentHp,
+    imagePath: getCardImagePath(getUnitMeta(defender) || {}) || '',
+  };
   defender.currentHp -= actualDamage;
   if (!ignoreReduction) addLog(`${sourceLabel} ${defender.name} に ${actualDamage} ダメージ`);
+  if (actualDamage > 0) {
+    queueCombatFxEvent({
+      kind: 'damage',
+      targetIndex,
+      amount: actualDamage,
+      heavy: actualDamage >= 2,
+      defeated: defender.currentHp <= 0,
+      entry: defeatedEntry,
+    });
+  }
   if (defender.currentHp <= 0) {
     matchState.board[targetIndex] = null;
     clearPendingRedeployForUnit(defender);
@@ -3760,9 +3853,10 @@ function renderMatchArea() {
   renderActionConfirmBox();
   updateActionGuide();
 
-  if (shouldAnimateCombatFx && combatFxBoardSnapshot && combatFxTurnSnapshot) {
+  if (USE_SNAPSHOT_COMBAT_FX && shouldAnimateCombatFx && combatFxBoardSnapshot && combatFxTurnSnapshot) {
     applyCombatFxFromSnapshots(combatFxBoardSnapshot, nextBoardSnapshot, combatFxTurnSnapshot, nextTurnSnapshot);
   }
+  flushQueuedCombatFx();
   combatFxBoardSnapshot = nextBoardSnapshot;
   combatFxTurnSnapshot = nextTurnSnapshot;
 }
@@ -4079,6 +4173,7 @@ function applyPendingAttack(pendingAction) {
   const sourceIndex = findUnitIndexById(pendingAction.unitId);
   if (sourceIndex < 0) return;
   playSfx('attack');
+  queueCombatFxEvent({ kind: 'attack', attackerIndex: sourceIndex, unitId: pendingAction.unitId });
   const attacker = matchState.board[sourceIndex];
   const defender = matchState.board[pendingAction.targetIndex];
   if (!attacker || !defender || defender.owner === attacker.owner) return;
