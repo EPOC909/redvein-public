@@ -219,6 +219,15 @@ let itemEffectTitle = null;
 let itemEffectSub = null;
 let itemEffectLabel = null;
 
+let itemPickerRoot = null;
+let itemPickerGrid = null;
+let itemPickerTitle = null;
+let itemPickerSub = null;
+let itemPickerFoot = null;
+let itemPickerCloseButton = null;
+let itemPickerOpen = false;
+const itemPickerLaunchers = new Map();
+
 let spectatorHudRoot = null;
 let spectatorHudTitle = null;
 let spectatorHudMain = null;
@@ -919,7 +928,7 @@ function buildGuideState() {
       return {
         show: true,
         title: `${getGuideSideLabel(activePlayerKey)} のアイテムを使うか選んでください`,
-        detail: 'アイテムを使うなら「使う」を押してください。使わないなら「アイテムを使わず次へ」を押します。',
+        detail: 'アイテム欄を押すか「アイテム一覧」を押すと、4枚を大きく表示できます。使わないなら「アイテムを使わず次へ」を押します。',
         chips: ['アイテムフェーズ', '1手番1枚まで'],
         highlight: () => {
           activeItems?.closest('.item-slot')?.classList.add('rv-guide-panel-focus');
@@ -1054,6 +1063,458 @@ function updateActionGuide() {
   }
   if (typeof state.highlight === 'function') state.highlight();
 }
+
+
+function injectItemPickerStyles() {
+  if (document.getElementById('redveinItemPickerStyle')) return;
+  const style = document.createElement('style');
+  style.id = 'redveinItemPickerStyle';
+  style.textContent = `
+    body.rv-item-decision-active .board-center-area,
+    body.rv-item-decision-active .score-bar,
+    body.rv-item-decision-active .board-bottom-row,
+    body.rv-item-decision-active .battle-side-panel .reserve-slot,
+    body.rv-item-decision-active .battle-side-panel .field-slot {
+      opacity: 1 !important;
+      filter: none !important;
+      transform: none !important;
+    }
+    .item-slot-decision-focus {
+      transform: none !important;
+      transform-origin: center top;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(64, 16, 29, 0.36), rgba(25, 12, 18, 0.52)) !important;
+      box-shadow: 0 0 0 2px rgba(255, 196, 118, 0.20), 0 0 22px rgba(201, 71, 98, 0.12) !important;
+      padding: 8px !important;
+    }
+    .item-slot-decision-focus::after {
+      content: none !important;
+    }
+    .rv-item-picker-launch {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 6;
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 218, 164, 0.42);
+      background: linear-gradient(135deg, rgba(195, 61, 77, 0.96), rgba(124, 32, 57, 0.96));
+      color: #fff4de;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.30), 0 0 18px rgba(255, 124, 120, 0.16);
+      cursor: pointer;
+    }
+    .item-slot-decision-focus .rv-item-picker-launch {
+      display: inline-flex;
+    }
+    #redveinItemPicker {
+      position: fixed;
+      inset: 0;
+      z-index: 10030;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+    #redveinItemPicker.rv-item-picker-visible {
+      display: flex;
+    }
+    #redveinItemPicker .rv-item-picker-backdrop {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(92, 18, 38, 0.22), rgba(6, 5, 10, 0.78));
+      backdrop-filter: blur(6px);
+    }
+    #redveinItemPicker .rv-item-picker-panel {
+      position: relative;
+      width: min(980px, calc(100vw - 24px));
+      max-height: min(82vh, 860px);
+      overflow: auto;
+      border-radius: 28px;
+      padding: 18px 18px 20px;
+      border: 1px solid rgba(255, 220, 170, 0.20);
+      background: linear-gradient(180deg, rgba(28, 14, 20, 0.97), rgba(15, 10, 16, 0.96));
+      box-shadow: 0 26px 88px rgba(0, 0, 0, 0.50), 0 0 36px rgba(255, 90, 120, 0.12);
+    }
+    #redveinItemPicker .rv-item-picker-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    #redveinItemPicker .rv-item-picker-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 220, 170, 0.18);
+      background: rgba(255,255,255,0.05);
+      color: #ffdca6;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.10em;
+      margin-bottom: 10px;
+    }
+    #redveinItemPicker .rv-item-picker-title {
+      margin: 0;
+      color: #fff3f6;
+      font-size: clamp(24px, 3vw, 34px);
+      line-height: 1.1;
+      font-weight: 900;
+    }
+    #redveinItemPicker .rv-item-picker-sub {
+      margin-top: 8px;
+      color: rgba(255, 231, 236, 0.84);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    #redveinItemPicker .rv-item-picker-close {
+      flex: 0 0 auto;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 220, 170, 0.24);
+      background: rgba(255,255,255,0.06);
+      color: #fff0d8;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    #redveinItemPicker .rv-item-picker-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+    #redveinItemPicker .rv-item-picker-card {
+      display: grid;
+      grid-template-columns: 124px minmax(0, 1fr);
+      gap: 12px;
+      align-items: stretch;
+      min-height: 186px;
+      padding: 12px;
+      border-radius: 22px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: linear-gradient(180deg, rgba(54, 22, 34, 0.92), rgba(24, 13, 19, 0.94));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 10px 28px rgba(0,0,0,0.18);
+    }
+    #redveinItemPicker .rv-item-picker-card.used {
+      opacity: 0.58;
+      filter: grayscale(0.18);
+    }
+    #redveinItemPicker .rv-item-picker-image-wrap {
+      border-radius: 16px;
+      overflow: hidden;
+      background: rgba(0,0,0,0.16);
+      border: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #redveinItemPicker .rv-item-picker-image {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      aspect-ratio: 0.7;
+    }
+    #redveinItemPicker .rv-item-picker-fallback {
+      display: none;
+      width: 100%;
+      height: 100%;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 12px;
+      font-size: 18px;
+      font-weight: 900;
+      color: #fff4f7;
+      background: radial-gradient(circle at 50% 20%, rgba(255, 118, 154, 0.18), rgba(0,0,0,0.18) 44%), linear-gradient(180deg, rgba(88, 26, 44, 1), rgba(22, 11, 17, 1));
+    }
+    #redveinItemPicker .rv-item-picker-body {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    #redveinItemPicker .rv-item-picker-name {
+      color: #fff3f6;
+      font-size: 20px;
+      line-height: 1.2;
+      font-weight: 900;
+    }
+    #redveinItemPicker .rv-item-picker-meta {
+      margin-top: 6px;
+      color: rgba(255, 225, 230, 0.72);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    #redveinItemPicker .rv-item-picker-effect {
+      margin-top: 10px;
+      color: rgba(255, 238, 242, 0.92);
+      font-size: 14px;
+      line-height: 1.55;
+      flex: 1 1 auto;
+      display: -webkit-box;
+      -webkit-line-clamp: 5;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    #redveinItemPicker .rv-item-picker-actions {
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      justify-content: space-between;
+    }
+    #redveinItemPicker .rv-item-picker-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.05);
+      color: rgba(255,236,240,0.76);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    #redveinItemPicker .rv-item-picker-select {
+      padding: 10px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 218, 164, 0.28);
+      background: linear-gradient(135deg, rgba(195, 61, 77, 0.94), rgba(124, 32, 57, 0.94));
+      color: #fff4de;
+      font-weight: 900;
+      cursor: pointer;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.22);
+    }
+    #redveinItemPicker .rv-item-picker-select:disabled {
+      cursor: default;
+      opacity: 0.5;
+    }
+    #redveinItemPicker .rv-item-picker-foot {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 220, 170, 0.10);
+      background: rgba(255,255,255,0.04);
+      color: rgba(255, 233, 238, 0.78);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    body.rv-item-picker-open .board-center-area,
+    body.rv-item-picker-open .score-bar,
+    body.rv-item-picker-open .board-bottom-row,
+    body.rv-item-picker-open .battle-side-panel,
+    body.rv-item-picker-open #redveinActionGuide {
+      filter: blur(1px) brightness(0.76);
+      transition: filter 0.18s ease;
+    }
+    @media (max-width: 900px) {
+      #redveinItemPicker {
+        padding: 10px;
+        align-items: flex-start;
+      }
+      #redveinItemPicker .rv-item-picker-panel {
+        width: min(100%, calc(100vw - 12px));
+        max-height: calc(100vh - 20px);
+        padding: 14px 12px 16px;
+      }
+      #redveinItemPicker .rv-item-picker-grid {
+        grid-template-columns: 1fr;
+      }
+      #redveinItemPicker .rv-item-picker-card {
+        grid-template-columns: 104px minmax(0, 1fr);
+        min-height: 164px;
+      }
+      #redveinItemPicker .rv-item-picker-name {
+        font-size: 18px;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function ensureItemPickerModal() {
+  if (itemPickerRoot && document.body.contains(itemPickerRoot)) return itemPickerRoot;
+  injectItemPickerStyles();
+  if (!document.body) return null;
+  itemPickerRoot = document.createElement('div');
+  itemPickerRoot.id = 'redveinItemPicker';
+  itemPickerRoot.innerHTML = `
+    <div class="rv-item-picker-backdrop"></div>
+    <div class="rv-item-picker-panel">
+      <div class="rv-item-picker-header">
+        <div>
+          <div class="rv-item-picker-kicker">ITEM SELECT</div>
+          <h2 class="rv-item-picker-title"></h2>
+          <div class="rv-item-picker-sub"></div>
+        </div>
+        <button type="button" class="rv-item-picker-close" aria-label="閉じる">閉じる</button>
+      </div>
+      <div class="rv-item-picker-grid"></div>
+      <div class="rv-item-picker-foot"></div>
+    </div>
+  `;
+  document.body.appendChild(itemPickerRoot);
+  itemPickerTitle = itemPickerRoot.querySelector('.rv-item-picker-title');
+  itemPickerSub = itemPickerRoot.querySelector('.rv-item-picker-sub');
+  itemPickerGrid = itemPickerRoot.querySelector('.rv-item-picker-grid');
+  itemPickerFoot = itemPickerRoot.querySelector('.rv-item-picker-foot');
+  itemPickerCloseButton = itemPickerRoot.querySelector('.rv-item-picker-close');
+  itemPickerRoot.querySelector('.rv-item-picker-backdrop')?.addEventListener('click', () => setItemPickerOpen(false));
+  itemPickerCloseButton?.addEventListener('click', () => setItemPickerOpen(false));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && itemPickerOpen) {
+      event.preventDefault();
+      setItemPickerOpen(false);
+    }
+  });
+  return itemPickerRoot;
+}
+
+function getItemPickerPlayerKey() {
+  return hasItemDecisionFocus() && canViewPrivateZone(matchState.currentPlayer) ? matchState.currentPlayer : '';
+}
+
+function setItemPickerOpen(nextValue) {
+  itemPickerOpen = !!nextValue;
+  renderItemPickerModal();
+}
+
+function ensureItemPickerLaunchers() {
+  [player1ItemSlot, player2ItemSlot].forEach((slot, index) => {
+    if (!slot) return;
+    const key = index === 0 ? 'player1' : 'player2';
+    let button = itemPickerLaunchers.get(key);
+    if (!button || !slot.contains(button)) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'rv-item-picker-launch';
+      button.textContent = 'アイテム一覧';
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (slot.dataset.itemPickerActive === '1') setItemPickerOpen(true);
+      });
+      slot.appendChild(button);
+      itemPickerLaunchers.set(key, button);
+      slot.addEventListener('click', (event) => {
+        if (slot.dataset.itemPickerActive !== '1') return;
+        if (event.target.closest('button, input, select, textarea, a')) return;
+        if (event.target.closest('.side-card-item')) {
+          setItemPickerOpen(true);
+        }
+      });
+    }
+  });
+}
+
+function renderItemPickerModal() {
+  const root = ensureItemPickerModal();
+  ensureItemPickerLaunchers();
+  if (!root || !itemPickerGrid) return;
+
+  const activePlayerKey = getItemPickerPlayerKey();
+  if (!activePlayerKey || !itemPickerOpen) {
+    root.classList.remove('rv-item-picker-visible');
+    document.body.classList.remove('rv-item-picker-open');
+    return;
+  }
+
+  const player = getPlayerState(activePlayerKey);
+  const items = Array.isArray(player?.itemStates) ? player.itemStates : [];
+  const activeLabel = getGuideSideLabel(activePlayerKey);
+  if (itemPickerTitle) itemPickerTitle.textContent = `${activeLabel} のアイテムを選んでください`;
+  if (itemPickerSub) itemPickerSub.textContent = '4枚をまとめて大きく表示しています。1枚選ぶと盤面へ戻って対象選択や使用確認へ進みます。';
+  if (itemPickerFoot) itemPickerFoot.textContent = '今回はアイテムを使わないなら、ポップアップを閉じて「アイテムを使わず次へ」を押してください。';
+  itemPickerGrid.innerHTML = '';
+
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'rv-item-picker-foot';
+    empty.textContent = '使えるアイテムがありません。';
+    itemPickerGrid.appendChild(empty);
+  }
+
+  const selectedId = getSelectedItemCardId();
+  items.forEach((itemState) => {
+    const card = cardMap.get(itemState.cardId);
+    if (!card) return;
+    const cardNode = document.createElement('div');
+    cardNode.className = `rv-item-picker-card ${itemState.used ? 'used' : ''}`.trim();
+
+    const imageWrap = document.createElement('div');
+    imageWrap.className = 'rv-item-picker-image-wrap';
+    const image = document.createElement('img');
+    image.className = 'rv-item-picker-image';
+    image.alt = card.card_name || 'アイテム';
+    const imagePath = getCardImagePath(card);
+    const fallback = document.createElement('div');
+    fallback.className = 'rv-item-picker-fallback';
+    fallback.textContent = card.card_name || 'ITEM';
+    if (imagePath) {
+      image.src = imagePath;
+      image.onerror = () => {
+        image.style.display = 'none';
+        fallback.style.display = 'flex';
+      };
+    } else {
+      image.style.display = 'none';
+      fallback.style.display = 'flex';
+    }
+    imageWrap.appendChild(image);
+    imageWrap.appendChild(fallback);
+
+    const body = document.createElement('div');
+    body.className = 'rv-item-picker-body';
+    const name = document.createElement('div');
+    name.className = 'rv-item-picker-name';
+    name.textContent = card.card_name || itemState.cardId;
+    const meta = document.createElement('div');
+    meta.className = 'rv-item-picker-meta';
+    meta.textContent = `${typeLabel(card.type)} / ${String(card.rarity || '').toUpperCase()} / ${card.card_id || itemState.cardId}`;
+    const effect = document.createElement('div');
+    effect.className = 'rv-item-picker-effect';
+    effect.textContent = card.effect_text || '効果なし';
+    const actions = document.createElement('div');
+    actions.className = 'rv-item-picker-actions';
+    const pill = document.createElement('div');
+    pill.className = 'rv-item-picker-pill';
+    pill.textContent = itemState.used ? '使用済み' : (selectedId === itemState.cardId ? '選択中' : '未使用');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'rv-item-picker-select';
+    button.textContent = itemState.used ? '使用済み' : (selectedId === itemState.cardId ? '選択中' : 'このアイテムを選ぶ');
+    button.disabled = !!itemState.used;
+    button.addEventListener('click', () => {
+      if (itemState.used) return;
+      selectItemForUse(itemState.cardId);
+      setItemPickerOpen(false);
+    });
+    actions.appendChild(pill);
+    actions.appendChild(button);
+
+    body.appendChild(name);
+    body.appendChild(meta);
+    body.appendChild(effect);
+    body.appendChild(actions);
+
+    cardNode.appendChild(imageWrap);
+    cardNode.appendChild(body);
+    itemPickerGrid.appendChild(cardNode);
+  });
+
+  root.classList.add('rv-item-picker-visible');
+  document.body.classList.add('rv-item-picker-open');
+}
+
 
 function injectItemShowcaseStyles() {
   if (document.getElementById('redveinItemShowcaseStyle')) return;
@@ -5617,6 +6078,7 @@ function setPendingAction(action) {
 
 function selectItemForUse(cardId) {
   if (matchState.phase !== 'battle' || !isItemWindowOpen() || matchState.turnState.itemUsed) return;
+  itemPickerOpen = false;
   roomSyncState.pendingItemUseRequest = false;
   const nextValue = matchState.turnState.selectedItemCardId === cardId ? null : cardId;
   matchState.turnState.selectedItemCardId = nextValue;
@@ -5626,6 +6088,7 @@ function selectItemForUse(cardId) {
 
 function cancelSelectedItemUse() {
   if (!matchState.turnState) return;
+  itemPickerOpen = false;
   matchState.turnState.selectedItemCardId = null;
   matchState.turnState.selectedItemTargetIndex = null;
   renderMatchArea();
@@ -5633,6 +6096,7 @@ function cancelSelectedItemUse() {
 
 function closeItemWindow() {
   if (!matchState.turnState) return;
+  itemPickerOpen = false;
   matchState.turnState.itemWindowOpen = false;
   matchState.turnState.selectedItemCardId = null;
   matchState.turnState.selectedItemTargetIndex = null;
@@ -6263,19 +6727,24 @@ function renderMatchMeta() {
 
 function updateItemDecisionFocus() {
   const decisionFocusActive = hasItemDecisionFocus();
-  document.body.classList.toggle('rv-item-decision-active', decisionFocusActive);
+  const pickerEligiblePlayer = getItemPickerPlayerKey();
+  if (!pickerEligiblePlayer) itemPickerOpen = false;
+  document.body.classList.toggle('rv-item-decision-active', decisionFocusActive && !itemPickerOpen);
+  document.body.classList.toggle('rv-item-picker-open', !!(pickerEligiblePlayer && itemPickerOpen));
 
   const activePlayer = decisionFocusActive ? matchState.currentPlayer : null;
   const slotMap = [
-    { player: 'player1', slot: player1ItemSlot, panel: actionPanelLeft, button: itemPhaseDoneButton },
-    { player: 'player2', slot: player2ItemSlot, panel: actionPanelRight, button: itemPhaseDoneButtonRightMirror || itemPhaseDoneButtonRight },
+    { player: 'player1', slot: player1ItemSlot, panel: actionPanelLeft, button: itemPhaseDoneButton, launcher: itemPickerLaunchers.get('player1') },
+    { player: 'player2', slot: player2ItemSlot, panel: actionPanelRight, button: itemPhaseDoneButtonRightMirror || itemPhaseDoneButtonRight, launcher: itemPickerLaunchers.get('player2') },
   ];
 
-  slotMap.forEach(({ player, slot, panel, button }) => {
+  slotMap.forEach(({ player, slot, panel, button, launcher }) => {
     const isActive = decisionFocusActive && activePlayer === player;
-    slot?.classList.toggle('item-slot-decision-focus', isActive);
-    panel?.classList.toggle('item-phase-decision-panel', isActive);
-    button?.classList.toggle('item-phase-skip-highlight', isActive);
+    if (slot) slot.dataset.itemPickerActive = isActive ? '1' : '0';
+    slot?.classList.toggle('item-slot-decision-focus', isActive && !itemPickerOpen);
+    panel?.classList.toggle('item-phase-decision-panel', isActive && !itemPickerOpen);
+    button?.classList.toggle('item-phase-skip-highlight', isActive && !itemPickerOpen);
+    if (launcher) launcher.style.display = isActive && !itemPickerOpen ? 'inline-flex' : 'none';
   });
 }
 
@@ -6287,6 +6756,7 @@ function renderMatchArea() {
   renderMatchMeta();
   renderPlayerPanels();
   updateItemDecisionFocus();
+  renderItemPickerModal();
   renderBoard();
   renderBattleLog();
   renderItemConfirmBox();
@@ -7522,6 +7992,8 @@ setupSfx();
 setupBgm();
 ensureActionGuide();
 ensureItemShowcase();
+ensureItemPickerModal();
+ensureItemPickerLaunchers();
 ensureSpectatorHud();
 ensureCombatFxReady();
 ensureUnlockPanel();
