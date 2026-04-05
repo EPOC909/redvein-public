@@ -259,8 +259,8 @@ function getEliminationFinishMessage(game) {
   if (!game || !['battle', 'finished'].includes(game.phase)) return '';
   const p1Alive = game.board.filter((unit) => unit && unit.owner === 'player1').length;
   const p2Alive = game.board.filter((unit) => unit && unit.owner === 'player2').length;
-  const p1Active = p1Alive > 0;
-  const p2Active = p2Alive > 0;
+  const p1Active = p1Alive > 0 || (Array.isArray(game.pendingRedeploys) && game.pendingRedeploys.some((item) => item && item.owner === 'player1'));
+  const p2Active = p2Alive > 0 || (Array.isArray(game.pendingRedeploys) && game.pendingRedeploys.some((item) => item && item.owner === 'player2'));
   if (!p1Active && !p2Active) return '両者全滅により引き分けです';
   if (!p1Active) return 'プレイヤー2の全滅勝ちです';
   if (!p2Active) return 'プレイヤー1の全滅勝ちです';
@@ -530,7 +530,6 @@ function beginTurn(game, playerKey) {
   game.itemPhaseOpen = true;
   game.itemUsed = false;
   game.turnState = createTurnState();
-  game.pendingRedeploys = [];
   clearTempEffectsForPlayer(game, playerKey);
   refreshTurnStatusForPlayer(game, playerKey);
 }
@@ -667,7 +666,16 @@ function sanitizeTurnStateSnapshot(turnState, fallback = createTurnState()) {
 
 
 function normalizePendingRedeploys(game) {
-  game.pendingRedeploys = [];
+  const raw = Array.isArray(game.pendingRedeploys) ? game.pendingRedeploys : [];
+  const seen = new Set();
+  game.pendingRedeploys = raw.filter((entry) => {
+    if (!entry || (entry.owner !== 'player1' && entry.owner !== 'player2') || !validCardIds.has(String(entry.cardId || ''))) return false;
+    const key = `${entry.owner}:${entry.cardId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    const sameCardOnBoard = (game.board || []).some((unit) => unit && unit.owner === entry.owner && unit.cardId === entry.cardId);
+    return !sameCardOnBoard;
+  }).map((entry) => ({ owner: entry.owner, cardId: String(entry.cardId), name: String(entry.name || getCardMeta(entry.cardId)?.card_name || entry.cardId) }));
 }
 
 function mergePublicStateSnapshot(room, payload, playerKey) {
@@ -1061,6 +1069,15 @@ function handleAttackUnit(data, ws) {
   if (unitHasEffectType(attacker, 'move_after_attack_1')) {
     game.turnState.postAttackMoveUnitId = unitId;
   }
+  if (unitHasEffectType(attacker, 'return_and_redeploy_full_heal')) {
+    const exists = game.pendingRedeploys.some((entry) => entry && entry.owner === playerKey && entry.cardId === attacker.cardId);
+    if (!exists) {
+      game.pendingRedeploys.push({ owner: playerKey, cardId: attacker.cardId, name: attacker.name });
+    }
+    game.board[sourceIndex] = null;
+    game.turnState.postAttackMoveUnitId = null;
+    normalizePendingRedeploys(game);
+  }
   const payload = {
     type: 'attack_applied',
     roomId: room.roomId,
@@ -1069,6 +1086,7 @@ function handleAttackUnit(data, ws) {
     sourceIndex,
     targetIndex,
     currentPlayer: game.currentPlayer,
+    fxHoldMs: 1100,
   };
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([_, slot]) => slot?.ws && send(slot.ws, payload));
 }

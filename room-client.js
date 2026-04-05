@@ -295,6 +295,14 @@ ${roomLog.textContent}` : line;
     });
   }
 
+  function schedulePostAttackRefresh(actionPlayerKey, delayMs = 0) {
+    const waitMs = Math.max(0, Number(delayMs || 0));
+    window.setTimeout(() => {
+      syncPublicStateIfActor(actionPlayerKey);
+      configureRoomSync();
+    }, waitMs);
+  }
+
   function getDisplayName() {
     return displayNameInput.value.trim() || '名無しプレイヤー';
   }
@@ -475,8 +483,11 @@ ${roomLog.textContent}` : line;
       if (api && typeof api.applyRoomAttack === 'function') {
         api.applyRoomAttack(data);
       }
-      syncPublicStateIfActor(data.player);
-      configureRoomSync();
+      const fxDelayFromApi = api && typeof api.getCombatFxHoldMsRemaining === 'function'
+        ? Number(api.getCombatFxHoldMsRemaining() || 0)
+        : 0;
+      const fxDelay = Math.max(Number(data.fxHoldMs || 0), fxDelayFromApi) + 160;
+      schedulePostAttackRefresh(data.player, fxDelay);
       return;
     }
 
@@ -519,24 +530,6 @@ ${roomLog.textContent}` : line;
       if (api && typeof api.applyRoomStateSync === 'function') {
         api.applyRoomStateSync(data);
       }
-      configureRoomSync();
-      return;
-    }
-
-    if (data.type === 'game_finished') {
-      const api = window.REDVEIN_ROOM_API;
-      currentRoomState = 'finished';
-      currentRoomStateLabel.textContent = currentRoomState;
-      if (api && typeof api.applyRoomStateSync === 'function') {
-        api.applyRoomStateSync({
-          phase: 'finished',
-          currentPlayer: data.currentPlayer || currentBattlePlayer,
-          round: data.round,
-          winner: data.message || '',
-        });
-      }
-      if (data.message) writeLog(data.message);
-      updateStartUi();
       configureRoomSync();
       return;
     }

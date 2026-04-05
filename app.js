@@ -151,8 +151,10 @@ let itemShowcaseHideTimer = null;
 let combatFxBoardSnapshot = null;
 let combatFxTurnSnapshot = null;
 let combatFxTimers = new Set();
-let pendingCombatFxEvents = [];
-const USE_SNAPSHOT_COMBAT_FX = false;
+let combatFxHoldUntil = 0;
+let combatFxHoldTimer = null;
+let combatFxPendingRender = false;
+let combatFxSkipNextSnapshotDiff = false;
 
 
 function injectActionGuideStyles() {
@@ -838,9 +840,39 @@ function rememberCombatFxTimer(timer) {
 
 function resetCombatFxTracking() {
   clearCombatFxTimers();
+  if (combatFxHoldTimer) {
+    clearTimeout(combatFxHoldTimer);
+    combatFxHoldTimer = null;
+  }
+  combatFxHoldUntil = 0;
+  combatFxPendingRender = false;
+  combatFxSkipNextSnapshotDiff = false;
   combatFxBoardSnapshot = null;
   combatFxTurnSnapshot = null;
-  pendingCombatFxEvents = [];
+}
+
+function getCombatFxHoldMsRemaining() {
+  return Math.max(0, Number(combatFxHoldUntil || 0) - Date.now());
+}
+
+function holdCombatFxFor(duration = 0) {
+  const ms = Math.max(0, Math.round(Number(duration) || 0));
+  if (ms <= 0) return 0;
+  combatFxHoldUntil = Math.max(Number(combatFxHoldUntil || 0), Date.now() + ms);
+  if (combatFxHoldTimer) clearTimeout(combatFxHoldTimer);
+  combatFxHoldTimer = rememberCombatFxTimer(setTimeout(() => {
+    combatFxHoldTimer = null;
+    combatFxHoldUntil = 0;
+    if (combatFxPendingRender) {
+      combatFxPendingRender = false;
+      renderMatchArea();
+    }
+  }, ms + 16));
+  return ms;
+}
+
+function queueRenderAfterCombatFx() {
+  combatFxPendingRender = true;
 }
 
 function injectCombatFxStyles() {
@@ -866,42 +898,35 @@ function injectCombatFxStyles() {
     .board-cell.rv-fx-attacker-burst::after {
       border: 2px solid rgba(255, 224, 156, 0.85);
       box-shadow: 0 0 28px rgba(255, 224, 156, 0.34), 0 0 54px rgba(255, 122, 86, 0.26);
-      animation: rvFxAttackerBurst 0.72s ease-out forwards;
-    }
-    .board-cell.rv-fx-super-attack::before {
-      content: 'ATTACK';
-      position: absolute;
-      left: 50%;
-      top: -10px;
-      transform: translateX(-50%);
-      z-index: 8;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: linear-gradient(180deg, rgba(255, 222, 150, 0.95), rgba(255, 129, 91, 0.95));
-      color: #2a0f0f;
-      font-size: 11px;
-      font-weight: 900;
-      letter-spacing: 0.16em;
-      box-shadow: 0 8px 24px rgba(255, 132, 84, 0.38);
-      animation: rvFxLabelFloat 0.76s ease-out forwards;
-      pointer-events: none;
-      white-space: nowrap;
+      animation: rvFxAttackerBurst 0.52s ease-out forwards;
     }
     .board-cell.rv-fx-target-impact::after {
-      background: radial-gradient(circle at center, rgba(255, 244, 191, 0.72), rgba(255, 74, 108, 0.44) 42%, rgba(255, 255, 255, 0) 72%);
-      box-shadow: 0 0 22px rgba(255, 84, 118, 0.28), 0 0 56px rgba(255, 84, 118, 0.24);
-      animation: rvFxTargetImpact 0.68s ease-out forwards;
-    }
-    .board-cell.rv-fx-target-heavy {
-      box-shadow: 0 0 0 3px rgba(255, 164, 164, 0.35), 0 0 42px rgba(255, 76, 108, 0.28) !important;
-    }
-    .board-cell.rv-fx-target-defeat {
-      box-shadow: 0 0 0 3px rgba(255, 214, 164, 0.45), 0 0 56px rgba(255, 96, 128, 0.36) !important;
-      animation: rvFxDefeatCell 0.96s ease-out forwards;
+      background: radial-gradient(circle at center, rgba(255, 226, 166, 0.48), rgba(255, 74, 108, 0.26) 42%, rgba(255, 255, 255, 0) 72%);
+      box-shadow: 0 0 22px rgba(255, 84, 118, 0.28);
+      animation: rvFxTargetImpact 0.44s ease-out forwards;
     }
     .board-cell.rv-fx-target-hit .unit-card-visual {
       animation: rvFxHitShake 0.46s cubic-bezier(.36,.07,.19,.97) both;
       filter: saturate(1.06) brightness(1.08);
+    }
+    .board-cell .rv-fx-attacker-mark {
+      position: absolute;
+      left: 50%;
+      top: 14%;
+      transform: translate(-50%, 0);
+      z-index: 6;
+      pointer-events: none;
+      padding: 5px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 224, 156, 0.42);
+      background: rgba(20, 10, 12, 0.78);
+      color: #ffe7b8;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.16em;
+      text-shadow: 0 3px 18px rgba(0, 0, 0, 0.38), 0 0 16px rgba(255, 180, 96, 0.22);
+      animation: rvFxAttackerMark 0.92s ease-out forwards;
+      white-space: nowrap;
     }
     .board-cell .rv-fx-damage-pop {
       position: absolute;
@@ -989,6 +1014,12 @@ function injectCombatFxStyles() {
       72% { transform: translate3d(2px, -1px, 0) rotate(0.5deg) scale(0.996); }
       100% { transform: translate3d(0,0,0) scale(1); }
     }
+    @keyframes rvFxAttackerMark {
+      0% { opacity: 0; transform: translate(-50%, 6px) scale(0.84); }
+      18% { opacity: 1; transform: translate(-50%, -2px) scale(1); }
+      72% { opacity: 1; transform: translate(-50%, -10px) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -18px) scale(0.98); }
+    }
     @keyframes rvFxDamagePop {
       0% { opacity: 0; transform: translate(-50%, 8px) scale(0.7); }
       18% { opacity: 1; transform: translate(-50%, -2px) scale(1.06); }
@@ -1004,16 +1035,6 @@ function injectCombatFxStyles() {
       0% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
       20% { opacity: 1; transform: translate(-50%, -52%) scale(1); }
       100% { opacity: 0; transform: translate(-50%, -66%) scale(0.96); }
-    }
-    @keyframes rvFxLabelFloat {
-      0% { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.82); }
-      18% { opacity: 1; }
-      100% { opacity: 0; transform: translateX(-50%) translateY(-16px) scale(1.04); }
-    }
-    @keyframes rvFxDefeatCell {
-      0% { transform: scale(1); filter: brightness(1); }
-      25% { transform: scale(1.03); filter: brightness(1.18); }
-      100% { transform: scale(1); filter: brightness(1); }
     }
   `;
   document.head.appendChild(style);
@@ -1067,6 +1088,33 @@ function pulseCellClass(index, className, duration = 520) {
   }, duration));
 }
 
+function createCombatVisualEntry(unit, index = -1) {
+  if (!unit) return null;
+  const meta = cardMap.get(unit.cardId);
+  return {
+    index,
+    instanceId: unit.instanceId,
+    cardId: unit.cardId,
+    owner: unit.owner,
+    name: unit.name,
+    hp: Number(unit.currentHp || 0),
+    maxHp: Number(unit.maxHp || 0),
+    imagePath: getCardImagePath(meta) || '',
+  };
+}
+
+function spawnAttackerMark(index, label = 'ATTACK') {
+  const cell = getBoardCellElement(index);
+  if (!cell) return;
+  const mark = document.createElement('div');
+  mark.className = 'rv-fx-attacker-mark';
+  mark.textContent = label;
+  cell.appendChild(mark);
+  rememberCombatFxTimer(setTimeout(() => {
+    mark.remove();
+  }, 940));
+}
+
 function spawnDamagePopup(index, amount, options = {}) {
   const cell = getBoardCellElement(index);
   if (!cell) return;
@@ -1109,10 +1157,42 @@ function spawnDefeatGhost(index, entry) {
 }
 
 function applyDamageFxAtIndex(index, amount, options = {}) {
-  pulseCellClass(index, 'rv-fx-target-impact', 440);
-  pulseCellClass(index, 'rv-fx-target-hit', 500);
+  pulseCellClass(index, 'rv-fx-target-impact', 520);
+  pulseCellClass(index, 'rv-fx-target-hit', 600);
   const safeAmount = Math.max(1, Number(amount || 1));
   spawnDamagePopup(index, safeAmount, options);
+}
+
+function playResolvedAttackFxSequence(sourceIndex, hits = [], options = {}) {
+  ensureCombatFxReady();
+  const resolvedHits = (Array.isArray(hits) ? hits : []).filter((hit) => Number.isInteger(hit?.index) && hit.index >= 0 && hit.index < 25);
+  const totalDuration = Math.max(960, 420 + (resolvedHits.length * 240));
+  holdCombatFxFor(totalDuration);
+  if (Number.isInteger(sourceIndex) && sourceIndex >= 0) {
+    pulseCellClass(sourceIndex, 'rv-fx-attacker-burst', 760);
+    spawnAttackerMark(sourceIndex, options.attackerLabel || 'ATTACK');
+  }
+  resolvedHits.forEach((hit, order) => {
+    const delay = 140 + (order * 220);
+    rememberCombatFxTimer(setTimeout(() => {
+      const label = hit.label || (hit.blocked ? 'GUARD' : (hit.damage > 0 ? `-${hit.damage}` : 'HIT'));
+      if (hit.blocked) {
+        pulseCellClass(hit.index, 'rv-fx-target-impact', 560);
+        spawnDamagePopup(hit.index, 0, { label, heavy: true });
+        return;
+      }
+      applyDamageFxAtIndex(hit.index, Math.max(1, Number(hit.damage || 1)), {
+        heavy: !!hit.heavy || !!hit.defeated || Number(hit.damage || 0) >= 3,
+        label,
+      });
+      if (hit.defeated && hit.visualEntry) {
+        rememberCombatFxTimer(setTimeout(() => {
+          spawnDefeatGhost(hit.index, hit.visualEntry);
+        }, 110));
+      }
+    }, delay));
+  });
+  return totalDuration;
 }
 
 function findSnapshotIndexByUnitId(snapshot, unitId) {
@@ -1161,42 +1241,6 @@ function applyCombatFxFromSnapshots(prevBoard, nextBoard, prevTurn, nextTurn) {
     const vanishedAmount = Math.max(1, Number(prevEntry.hp || 1));
     applyDamageFxAtIndex(index, vanishedAmount, { heavy: true, label: `-${vanishedAmount}` });
     spawnDefeatGhost(index, prevEntry);
-  });
-}
-
-function queueCombatFxEvent(event) {
-  if (!event || typeof event !== 'object') return;
-  pendingCombatFxEvents.push(event);
-}
-
-function flushQueuedCombatFx() {
-  ensureCombatFxReady();
-  if (!Array.isArray(pendingCombatFxEvents) || pendingCombatFxEvents.length === 0) return;
-  const events = pendingCombatFxEvents.slice();
-  pendingCombatFxEvents = [];
-  events.forEach((event) => {
-    if (!event || typeof event !== 'object') return;
-    if (event.kind === 'attack' && Number.isInteger(event.attackerIndex)) {
-      pulseCellClass(event.attackerIndex, 'rv-fx-attacker-burst', 760);
-      const attackerCell = getBoardCellElement(event.attackerIndex);
-      if (attackerCell) {
-        attackerCell.classList.add('rv-fx-super-attack');
-        rememberCombatFxTimer(setTimeout(() => attackerCell.classList.remove('rv-fx-super-attack'), 760));
-      }
-    }
-    if (event.kind === 'damage' && Number.isInteger(event.targetIndex)) {
-      applyDamageFxAtIndex(event.targetIndex, Math.max(1, Number(event.amount || 1)), { heavy: !!event.heavy, label: event.label || undefined });
-      const targetCell = getBoardCellElement(event.targetIndex);
-      if (targetCell) {
-        targetCell.classList.add(event.defeated ? 'rv-fx-target-defeat' : 'rv-fx-target-heavy');
-        rememberCombatFxTimer(setTimeout(() => {
-          targetCell.classList.remove('rv-fx-target-defeat', 'rv-fx-target-heavy');
-        }, event.defeated ? 980 : 820));
-      }
-      if (event.defeated) {
-        spawnDefeatGhost(event.targetIndex, event.entry || null);
-      }
-    }
   });
 }
 
@@ -1470,6 +1514,10 @@ function setRoomSyncConfig(config = {}) {
   roomSyncState.onFinishItemPhaseRequest = typeof config.onFinishItemPhaseRequest === 'function' ? config.onFinishItemPhaseRequest : null;
   roomSyncState.onEndTurnRequest = typeof config.onEndTurnRequest === 'function' ? config.onEndTurnRequest : null;
   clearRoomPendingRequests();
+  if (getCombatFxHoldMsRemaining() > 0) {
+    queueRenderAfterCombatFx();
+    return;
+  }
   renderMatchArea();
 }
 
@@ -2865,26 +2913,8 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
     addLog(`${defender.name} の防護符が発動しました`);
   }
 
-  const defeatedEntry = {
-    instanceId: defender.instanceId,
-    cardId: defender.cardId,
-    name: defender.name,
-    owner: defender.owner,
-    hp: defender.currentHp,
-    imagePath: getCardImagePath(getUnitMeta(defender) || {}) || '',
-  };
   defender.currentHp -= actualDamage;
   if (!ignoreReduction) addLog(`${sourceLabel} ${defender.name} に ${actualDamage} ダメージ`);
-  if (actualDamage > 0) {
-    queueCombatFxEvent({
-      kind: 'damage',
-      targetIndex,
-      amount: actualDamage,
-      heavy: actualDamage >= 2,
-      defeated: defender.currentHp <= 0,
-      entry: defeatedEntry,
-    });
-  }
   if (defender.currentHp <= 0) {
     matchState.board[targetIndex] = null;
     clearPendingRedeployForUnit(defender);
@@ -2903,16 +2933,18 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
 
 function applyAttackDamageToIndex(attacker, targetIndex, damage, options = {}) {
   const defender = matchState.board[targetIndex];
-  if (!attacker || !defender || defender.owner === attacker.owner) return { blocked: false, defeated: false, damage: 0 };
+  if (!attacker || !defender || defender.owner === attacker.owner) return { blocked: false, defeated: false, damage: 0, resolvedTargetIndex: targetIndex, visualEntry: null };
+  const defenderVisualEntry = createCombatVisualEntry(defender, targetIndex);
   const guardianKnight = findAdjacentGuardianKnight(targetIndex, defender.owner);
   if (guardianKnight && guardianKnight.unit.instanceId !== defender.instanceId) {
     guardianKnight.unit.guardBlockUsed = true;
     addLog(`${guardianKnight.unit.name} が ${defender.name} への攻撃を1回だけ完全防御しました`);
-    return { blocked: true, defeated: false, damage: 0 };
+    return { blocked: true, defeated: false, damage: 0, resolvedTargetIndex: targetIndex, visualEntry: defenderVisualEntry };
   }
   const kingCommander = findAdjacentKingCommander(targetIndex, defender.owner);
   if (kingCommander && kingCommander.unit.instanceId !== defender.instanceId) {
     const kingInstanceId = kingCommander.unit.instanceId;
+    const interceptedVisualEntry = createCombatVisualEntry(kingCommander.unit, kingCommander.index);
     const redirectedDamage = typeof options.attackerIndex === 'number'
       ? getAttackDamageAgainst(attacker, options.attackerIndex, kingCommander.unit, kingCommander.index)
       : damage;
@@ -2924,18 +2956,28 @@ function applyAttackDamageToIndex(attacker, targetIndex, damage, options = {}) {
     const result = applyDamageToIndex(kingCommander.index, redirectedDamage, `${PLAYER_LABEL[attacker.owner]} の ${attacker.name} が`, redirectOptions);
     const kingAliveIndex = findUnitIndexById(kingInstanceId);
     const attackerAliveIndex = findUnitIndexById(attacker.instanceId);
+    let counterDamage = 0;
     if (kingAliveIndex >= 0 && attackerAliveIndex >= 0) {
       const kingAlive = matchState.board[kingAliveIndex];
       addLog(`${kingAlive.name} が反撃し、${attacker.name} に 1 ダメージを与えます`);
-      applyDamageToIndex(attackerAliveIndex, 1, `${kingAlive.name} の反撃で`, { creditPlayerKey: kingAlive.owner });
+      const counterResult = applyDamageToIndex(attackerAliveIndex, 1, `${kingAlive.name} の反撃で`, { creditPlayerKey: kingAlive.owner });
+      counterDamage = Number(counterResult.damage || 0);
     }
-    return { ...result, intercepted: true };
+    return {
+      ...result,
+      intercepted: true,
+      resolvedTargetIndex: kingCommander.index,
+      visualEntry: interceptedVisualEntry,
+      counterTargetIndex: attackerAliveIndex >= 0 ? attackerAliveIndex : null,
+      counterDamage,
+    };
   }
   const damageOptions = Object.prototype.hasOwnProperty.call(options, 'creditPlayerKey')
     ? { ...options }
     : { ...options, creditPlayerKey: attacker.owner };
   delete damageOptions.attackerIndex;
-  return applyDamageToIndex(targetIndex, damage, `${PLAYER_LABEL[attacker.owner]} の ${attacker.name} が`, damageOptions);
+  const result = applyDamageToIndex(targetIndex, damage, `${PLAYER_LABEL[attacker.owner]} の ${attacker.name} が`, damageOptions);
+  return { ...result, resolvedTargetIndex: targetIndex, visualEntry: defenderVisualEntry };
 }
 
 function applyItemEffect(card, playerKey) {
@@ -3853,10 +3895,13 @@ function renderMatchArea() {
   renderActionConfirmBox();
   updateActionGuide();
 
-  if (USE_SNAPSHOT_COMBAT_FX && shouldAnimateCombatFx && combatFxBoardSnapshot && combatFxTurnSnapshot) {
-    applyCombatFxFromSnapshots(combatFxBoardSnapshot, nextBoardSnapshot, combatFxTurnSnapshot, nextTurnSnapshot);
+  if (shouldAnimateCombatFx && combatFxBoardSnapshot && combatFxTurnSnapshot) {
+    if (combatFxSkipNextSnapshotDiff) {
+      combatFxSkipNextSnapshotDiff = false;
+    } else {
+      applyCombatFxFromSnapshots(combatFxBoardSnapshot, nextBoardSnapshot, combatFxTurnSnapshot, nextTurnSnapshot);
+    }
   }
-  flushQueuedCombatFx();
   combatFxBoardSnapshot = nextBoardSnapshot;
   combatFxTurnSnapshot = nextTurnSnapshot;
 }
@@ -4173,15 +4218,36 @@ function applyPendingAttack(pendingAction) {
   const sourceIndex = findUnitIndexById(pendingAction.unitId);
   if (sourceIndex < 0) return;
   playSfx('attack');
-  queueCombatFxEvent({ kind: 'attack', attackerIndex: sourceIndex, unitId: pendingAction.unitId });
   const attacker = matchState.board[sourceIndex];
   const defender = matchState.board[pendingAction.targetIndex];
   if (!attacker || !defender || defender.owner === attacker.owner) return;
 
   let defeatedByAttack = 0;
+  const attackFxHits = [];
   const resolveAttackHit = (targetIndex, damage, options = {}) => {
     const result = applyAttackDamageToIndex(attacker, targetIndex, damage, { ...options, attackerIndex: sourceIndex });
     if (result.defeated) defeatedByAttack += 1;
+    const resolvedTargetIndex = Number.isInteger(result.resolvedTargetIndex) ? result.resolvedTargetIndex : targetIndex;
+    attackFxHits.push({
+      index: resolvedTargetIndex,
+      damage: Number(result.damage || 0),
+      defeated: !!result.defeated,
+      blocked: !!result.blocked,
+      heavy: !!result.defeated || Number(result.damage || 0) >= 3,
+      label: result.blocked ? 'GUARD' : (Number(result.damage || 0) > 0 ? `-${result.damage}` : (result.intercepted ? 'HIT' : 'HIT')),
+      visualEntry: result.visualEntry || null,
+    });
+    if (Number.isInteger(result.counterTargetIndex) && result.counterTargetIndex >= 0 && Number(result.counterDamage || 0) > 0) {
+      attackFxHits.push({
+        index: result.counterTargetIndex,
+        damage: Number(result.counterDamage || 0),
+        defeated: false,
+        blocked: false,
+        heavy: false,
+        label: `-${result.counterDamage}`,
+        visualEntry: null,
+      });
+    }
     return result;
   };
 
@@ -4287,39 +4353,49 @@ function applyPendingAttack(pendingAction) {
     }
   }
 
+  combatFxSkipNextSnapshotDiff = true;
   renderMatchArea();
+  const attackFxDuration = playResolvedAttackFxSequence(sourceIndex, attackFxHits, { attackerLabel: 'ATTACK' });
 
-  if (checkWinByElimination()) return;
+  const continueAfterAttackFx = () => {
+    if (checkWinByElimination()) return;
 
-  if (attackerAfterAllEffects && unitHasEffectType(attackerAfterAllEffects, 'double_attack')) {
-    const attackLimit = getAttackLimitForUnit(attackerAfterAllEffects);
-    const usedCount = Number(matchState.turnState.attackCount || 0);
-    if (usedCount < attackLimit) {
-      const remainingTargets = getAttackTargets(attackerAfterAllEffects.instanceId);
-      if (remainingTargets.length > 0) {
+    if (attackerAfterAllEffects && unitHasEffectType(attackerAfterAllEffects, 'double_attack')) {
+      const attackLimit = getAttackLimitForUnit(attackerAfterAllEffects);
+      const usedCount = Number(matchState.turnState.attackCount || 0);
+      if (usedCount < attackLimit) {
+        const remainingTargets = getAttackTargets(attackerAfterAllEffects.instanceId);
+        if (remainingTargets.length > 0) {
+          matchState.selectedUnitId = attackerAfterAllEffects.instanceId;
+          matchState.actionMode = 'attack';
+          addLog(`${attackerAfterAllEffects.name} は神速剣士の効果で、あと ${attackLimit - usedCount} 回攻撃できます`);
+          renderMatchArea();
+          return;
+        }
+        addLog(`${attackerAfterAllEffects.name} は追加攻撃を行える敵がいません`);
+      }
+    }
+
+    if (attackerAfterAllEffects && unitHasEffectType(attackerAfterAllEffects, 'move_after_attack_1')) {
+      const postMoveCells = getPostAttackMoveCells(attackerAfterAllEffects.instanceId);
+      if (postMoveCells.length > 0) {
+        matchState.turnState.postAttackMoveUnitId = attackerAfterAllEffects.instanceId;
         matchState.selectedUnitId = attackerAfterAllEffects.instanceId;
-        matchState.actionMode = 'attack';
-        addLog(`${attackerAfterAllEffects.name} は神速剣士の効果で、あと ${attackLimit - usedCount} 回攻撃できます`);
+        addLog(`${attackerAfterAllEffects.name} は効果により攻撃後に1マス移動できます`);
         renderMatchArea();
         return;
       }
-      addLog(`${attackerAfterAllEffects.name} は追加攻撃を行える敵がいません`);
+      addLog(`${attackerAfterAllEffects.name} は攻撃後移動を行える空きマスがありません`);
     }
-  }
 
-  if (attackerAfterAllEffects && unitHasEffectType(attackerAfterAllEffects, 'move_after_attack_1')) {
-    const postMoveCells = getPostAttackMoveCells(attackerAfterAllEffects.instanceId);
-    if (postMoveCells.length > 0) {
-      matchState.turnState.postAttackMoveUnitId = attackerAfterAllEffects.instanceId;
-      matchState.selectedUnitId = attackerAfterAllEffects.instanceId;
-      addLog(`${attackerAfterAllEffects.name} は効果により攻撃後に1マス移動できます`);
-      renderMatchArea();
-      return;
-    }
-    addLog(`${attackerAfterAllEffects.name} は攻撃後移動を行える空きマスがありません`);
-  }
+    endTurn();
+  };
 
-  endTurn();
+  if (attackFxDuration > 0) {
+    rememberCombatFxTimer(setTimeout(continueAfterAttackFx, attackFxDuration + 24));
+    return;
+  }
+  continueAfterAttackFx();
 }
 
 
@@ -4851,6 +4927,10 @@ function applyRoomStateSync(data = {}) {
     if (typeof data.itemPhaseOpen === 'boolean') matchState.turnState.itemWindowOpen = data.itemPhaseOpen;
     if (typeof data.itemUsed === 'boolean') matchState.turnState.itemUsed = data.itemUsed;
   }
+  if (getCombatFxHoldMsRemaining() > 0) {
+    queueRenderAfterCombatFx();
+    return true;
+  }
   renderMatchArea();
   return true;
 }
@@ -4868,6 +4948,7 @@ window.REDVEIN_ROOM_API = {
   applyRoomEndTurn,
   exportRoomSyncSnapshot,
   applyRoomStateSync,
+  getCombatFxHoldMsRemaining,
 };
 
 setupSfx();
