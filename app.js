@@ -125,11 +125,18 @@ let roomSyncState = { enabled: false, role: '', battleControlsEnabled: false, pe
 
 const SFX_STORAGE_KEY = 'redvein_sfx_enabled_v1';
 const SFX_MASTER_VOLUME = 0.08;
+const BGM_STORAGE_KEY = 'redvein_bgm_enabled_v1';
+const BGM_VOLUME = 0.22;
+const BGM_SRC = './assets/audio/redvein_bgm.mp3';
 const ACTION_GUIDE_COLLAPSED_STORAGE_KEY = 'redvein_action_guide_collapsed_v1';
 let sfxEnabled = loadSfxEnabled();
 let sfxAudioContext = null;
 let sfxMasterGainNode = null;
 let sfxToggleButton = null;
+let bgmEnabled = loadBgmEnabled();
+let bgmAudio = null;
+let bgmToggleButton = null;
+let bgmReadyForPlayback = false;
 let lastFinishedSfxMessage = '';
 
 let actionGuideCollapsed = loadActionGuideCollapsed();
@@ -1252,6 +1259,142 @@ function loadSfxEnabled() {
   } catch (_) {
     return true;
   }
+}
+
+function loadBgmEnabled() {
+  try {
+    const raw = localStorage.getItem(BGM_STORAGE_KEY);
+    if (raw === null) return true;
+    return raw !== '0';
+  } catch (_) {
+    return true;
+  }
+}
+
+function saveBgmEnabled() {
+  try {
+    localStorage.setItem(BGM_STORAGE_KEY, bgmEnabled ? '1' : '0');
+  } catch (_) {
+    // no-op
+  }
+}
+
+function shouldPlayBgm() {
+  if (document.hidden) return false;
+  const phase = String(matchState?.phase || '');
+  if (matchState?.active && phase && phase !== 'idle') return true;
+  if (roomSyncState?.enabled && phase && phase !== 'idle') return true;
+  return false;
+}
+
+function getBgmAudio() {
+  if (!bgmAudio) {
+    const audio = new Audio(BGM_SRC);
+    audio.preload = 'auto';
+    audio.loop = true;
+    audio.volume = BGM_VOLUME;
+    bgmAudio = audio;
+  }
+  return bgmAudio;
+}
+
+function updateBgmToggleButton() {
+  if (!bgmToggleButton) return;
+  const waiting = bgmEnabled && !bgmReadyForPlayback;
+  bgmToggleButton.textContent = bgmEnabled ? (waiting ? 'BGM ON *' : 'BGM ON') : 'BGM OFF';
+  bgmToggleButton.title = waiting ? '最初のクリック後にBGMが再生されます' : '対戦BGMのオンオフ';
+  bgmToggleButton.style.opacity = bgmEnabled ? '0.95' : '0.65';
+  bgmToggleButton.style.borderColor = bgmEnabled ? 'rgba(255, 214, 130, 0.6)' : 'rgba(255, 255, 255, 0.18)';
+}
+
+function syncBgmPlayback(forcePause = false) {
+  const audio = getBgmAudio();
+  if (!audio) return;
+  audio.volume = BGM_VOLUME;
+
+  if (forcePause || !bgmEnabled || !bgmReadyForPlayback || !shouldPlayBgm()) {
+    if (!audio.paused) audio.pause();
+    updateBgmToggleButton();
+    return;
+  }
+
+  if (audio.paused) {
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {
+        // no-op
+      });
+    }
+  }
+  updateBgmToggleButton();
+}
+
+function markBgmInteractionReady() {
+  if (bgmReadyForPlayback) return;
+  bgmReadyForPlayback = true;
+  updateBgmToggleButton();
+  syncBgmPlayback();
+}
+
+function setBgmEnabled(nextValue) {
+  bgmEnabled = !!nextValue;
+  saveBgmEnabled();
+  updateBgmToggleButton();
+  if (bgmEnabled) {
+    markBgmInteractionReady();
+    syncBgmPlayback();
+  } else {
+    syncBgmPlayback(true);
+  }
+}
+
+function createBgmToggleButton() {
+  if (!document.body || document.getElementById('redveinBgmToggle')) return;
+  bgmToggleButton = document.createElement('button');
+  bgmToggleButton.id = 'redveinBgmToggle';
+  bgmToggleButton.type = 'button';
+  bgmToggleButton.setAttribute('aria-label', '対戦BGMのオンオフ');
+  Object.assign(bgmToggleButton.style, {
+    position: 'fixed',
+    right: '14px',
+    bottom: '56px',
+    zIndex: '9999',
+    padding: '8px 12px',
+    borderRadius: '999px',
+    border: '1px solid rgba(255, 214, 130, 0.45)',
+    background: 'rgba(23, 10, 18, 0.86)',
+    color: '#fff0cc',
+    fontSize: '12px',
+    fontWeight: '700',
+    letterSpacing: '0.06em',
+    cursor: 'pointer',
+    boxShadow: '0 6px 16px rgba(0, 0, 0, 0.28)',
+    backdropFilter: 'blur(6px)',
+  });
+  bgmToggleButton.addEventListener('click', () => {
+    markBgmInteractionReady();
+    setBgmEnabled(!bgmEnabled);
+  });
+  document.body.appendChild(bgmToggleButton);
+  updateBgmToggleButton();
+}
+
+function setupBgm() {
+  createBgmToggleButton();
+  const unlockHandler = () => {
+    markBgmInteractionReady();
+  };
+  window.addEventListener('pointerdown', unlockHandler, { passive: true });
+  window.addEventListener('keydown', unlockHandler, { passive: true });
+  window.addEventListener('touchstart', unlockHandler, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      syncBgmPlayback(true);
+      return;
+    }
+    syncBgmPlayback();
+  });
+  syncBgmPlayback();
 }
 
 function saveSfxEnabled() {
@@ -3915,6 +4058,7 @@ function renderMatchArea() {
   }
   combatFxBoardSnapshot = nextBoardSnapshot;
   combatFxTurnSnapshot = nextTurnSnapshot;
+  syncBgmPlayback();
 }
 
 function beginTurn(playerKey) {
@@ -4966,6 +5110,7 @@ window.REDVEIN_ROOM_API = {
 };
 
 setupSfx();
+setupBgm();
 ensureActionGuide();
 ensureItemShowcase();
 ensureCombatFxReady();
