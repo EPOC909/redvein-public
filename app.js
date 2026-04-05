@@ -1137,30 +1137,16 @@ function clearPendingRedeployPrompt(options = {}) {
   if (!matchState.turnState) return;
   matchState.turnState.pendingRedeployCardId = null;
   matchState.turnState.pendingRedeployOwner = null;
-  if (matchState.phase === 'battle' && options.keepItemWindowClosed !== true) {
+  if (matchState.phase === 'battle' && options.reopenItemWindow === true) {
     matchState.turnState.itemWindowOpen = true;
   }
 }
 
 function getPendingRedeployCard() {
-  const cardId = getPendingRedeployCardId();
-  const owner = getPendingRedeployOwner();
-  if (!cardId || !owner) return null;
-  const exists = (matchState.pendingRedeploys || []).some((entry) => entry.owner === owner && entry.cardId === cardId);
-  if (!exists) {
+  if (getPendingRedeployCardId() || getPendingRedeployOwner()) {
     clearPendingRedeployPrompt();
-    return null;
   }
-  if (owner !== matchState.currentPlayer) {
-    clearPendingRedeployPrompt();
-    return null;
-  }
-  const openCells = getHomeRespawnCells(owner).filter((idx) => !matchState.board[idx]);
-  if (!openCells.length) {
-    clearPendingRedeployPrompt();
-    return null;
-  }
-  return cardMap.get(cardId) || null;
+  return null;
 }
 
 function getHomeRespawnCells(playerKey) {
@@ -1190,7 +1176,7 @@ function queueUnitRedeploy(unit) {
       name: unit.name,
     });
   }
-  addLog(`${unit.name} は効果で手元に戻りました。次の ${PLAYER_LABEL[unit.owner]} の手番開始時に自陣へ再配置できます`);
+  addLog(`${unit.name} は効果で手元に戻りました。次の ${PLAYER_LABEL[unit.owner]} の手番開始時に自動で再配置されます`);
 }
 
 function clearPendingRedeployForUnit(unit) {
@@ -1222,66 +1208,39 @@ function revivePendingUnitsForPlayer(playerKey) {
 }
 
 function getRedeployableCells(playerKey = matchState.currentPlayer) {
-  const pendingCard = getPendingRedeployCard();
-  const pendingOwner = getPendingRedeployOwner();
-  if (matchState.phase !== 'battle' || !pendingCard || pendingOwner !== playerKey) return [];
-  return getHomeRespawnCells(playerKey).filter((idx) => !matchState.board[idx]);
+  return [];
 }
 
 function preparePendingRedeployForPlayer(playerKey) {
   if (!matchState.turnState) return;
-  matchState.turnState.pendingRedeployCardId = null;
-  matchState.turnState.pendingRedeployOwner = null;
-  const pending = getPendingRedeploysForPlayer(playerKey);
-  if (!pending.length) return;
-  const openCells = getHomeRespawnCells(playerKey).filter((idx) => !matchState.board[idx]);
-  if (!openCells.length) {
-    addLog(`${PLAYER_LABEL[playerKey]} の再配置待機ユニットがありますが、自陣に空きがないため今回は再配置できません`);
-    return;
-  }
-  const entry = pending[0];
-  matchState.turnState.pendingRedeployCardId = entry.cardId;
-  matchState.turnState.pendingRedeployOwner = entry.owner;
-  matchState.turnState.itemWindowOpen = false;
-  addLog(`${PLAYER_LABEL[playerKey]} は ${entry.name} を自陣の空きマスへ再配置できます`);
+  clearPendingRedeployPrompt();
+  const queue = Array.isArray(matchState.pendingRedeploys) ? matchState.pendingRedeploys : [];
+  if (!queue.length) return;
+
+  const remaining = [];
+  queue.forEach((entry) => {
+    if (!entry || !entry.cardId || !entry.owner) return;
+    if (entry.owner !== playerKey) {
+      remaining.push(entry);
+      return;
+    }
+    const spawnIndex = getHomeRespawnCells(playerKey).find((idx) => !matchState.board[idx]);
+    if (spawnIndex == null || spawnIndex < 0) {
+      remaining.push(entry);
+      addLog(`${entry.name} は再配置待機中ですが、自陣に空きがないため今回は自動再配置されません`);
+      return;
+    }
+    const unit = createUnitInstance(entry.cardId, playerKey);
+    unit.currentHp = unit.maxHp;
+    matchState.board[spawnIndex] = unit;
+    addLog(`${entry.name} が ${formatCellLabel(spawnIndex)} に自動再配置されました（HP全回復）`);
+  });
+
+  matchState.pendingRedeploys = remaining;
 }
 
 function placePendingRedeploy(targetIndex) {
-  const cardId = getPendingRedeployCardId();
-  const pendingOwner = getPendingRedeployOwner();
-  if (!cardId || !pendingOwner) return;
-  const playerKey = matchState.currentPlayer;
-  if (pendingOwner !== playerKey) {
-    matchState.turnState.pendingRedeployCardId = null;
-    matchState.turnState.pendingRedeployOwner = null;
-    renderMatchArea();
-    return;
-  }
-  const validTargets = getRedeployableCells(playerKey);
-  if (!validTargets.includes(targetIndex)) return;
-
-  const pendingIndex = (matchState.pendingRedeploys || []).findIndex((entry) => entry.owner === playerKey && entry.cardId === cardId);
-  if (pendingIndex < 0) {
-    matchState.turnState.pendingRedeployCardId = null;
-    matchState.turnState.pendingRedeployOwner = null;
-    renderMatchArea();
-    return;
-  }
-  matchState.pendingRedeploys.splice(pendingIndex, 1);
-
-  const unit = createUnitInstance(cardId, playerKey);
-  unit.currentHp = unit.maxHp;
-  matchState.board[targetIndex] = unit;
-  matchState.turnState.pendingRedeployCardId = null;
-  matchState.turnState.pendingRedeployOwner = null;
-  addLog(`${PLAYER_LABEL[playerKey]} の ${unit.name} を ${formatCellLabel(targetIndex)} に再配置しました（HP全回復）`);
-
-  if (getPendingRedeploysForPlayer(playerKey).length > 0) {
-    preparePendingRedeployForPlayer(playerKey);
-  } else {
-    matchState.turnState.itemWindowOpen = true;
-  }
-
+  clearPendingRedeployPrompt();
   renderMatchArea();
 }
 

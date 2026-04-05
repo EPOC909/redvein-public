@@ -298,6 +298,11 @@ function coordToIndex(row, col) {
   return row * 5 + col;
 }
 
+function getHomeRespawnCells(playerKey) {
+  const column = HOME_COLUMN[playerKey];
+  return [0, 1, 2, 3, 4].map((row) => coordToIndex(row, column));
+}
+
 function getOrthogonalNeighbors(index) {
   const { row, col } = indexToCoord(index);
   const cells = [];
@@ -524,6 +529,31 @@ function refreshTurnStatusForPlayer(game, playerKey) {
   });
 }
 
+function autoRedeployPendingUnitsForPlayer(game, playerKey) {
+  normalizePendingRedeploys(game);
+  const queue = Array.isArray(game.pendingRedeploys) ? game.pendingRedeploys : [];
+  if (!queue.length) return;
+
+  const remaining = [];
+  queue.forEach((entry) => {
+    if (!entry || !entry.cardId || !entry.owner) return;
+    if (entry.owner !== playerKey) {
+      remaining.push(entry);
+      return;
+    }
+    const spawnIndex = getHomeRespawnCells(playerKey).find((idx) => !game.board[idx]);
+    if (spawnIndex == null || spawnIndex < 0) {
+      remaining.push(entry);
+      return;
+    }
+    const unit = createUnitState(entry.cardId, playerKey);
+    unit.currentHp = unit.maxHp;
+    game.board[spawnIndex] = unit;
+  });
+
+  game.pendingRedeploys = remaining;
+}
+
 function beginTurn(game, playerKey) {
   game.currentPlayer = playerKey;
   game.phase = 'battle';
@@ -532,6 +562,7 @@ function beginTurn(game, playerKey) {
   game.turnState = createTurnState();
   clearTempEffectsForPlayer(game, playerKey);
   refreshTurnStatusForPlayer(game, playerKey);
+  autoRedeployPendingUnitsForPlayer(game, playerKey);
 }
 
 function getRequiredItemTargetType(card) {
@@ -693,6 +724,7 @@ function mergePublicStateSnapshot(room, payload, playerKey) {
   room.game.itemPhaseOpen = !!payload.itemPhaseOpen;
   room.game.itemUsed = !!payload.itemUsed;
   room.game.pendingRevives = Array.isArray(payload.pendingRevives) ? payload.pendingRevives : room.game.pendingRevives;
+  room.game.pendingRedeploys = Array.isArray(payload.pendingRedeploys) ? payload.pendingRedeploys : room.game.pendingRedeploys;
   normalizePendingRedeploys(room.game);
 
   const playerData = payload.players && typeof payload.players === 'object' ? payload.players : {};
