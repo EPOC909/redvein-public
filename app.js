@@ -166,6 +166,14 @@ let itemEffectTitle = null;
 let itemEffectSub = null;
 let itemEffectLabel = null;
 
+let spectatorHudRoot = null;
+let spectatorHudTitle = null;
+let spectatorHudMain = null;
+let spectatorHudSub = null;
+let spectatorHudMeta = null;
+let spectatorHudScoreP1 = null;
+let spectatorHudScoreP2 = null;
+
 let combatFxBoardSnapshot = null;
 let combatFxTurnSnapshot = null;
 let combatFxTimers = new Set();
@@ -1417,6 +1425,338 @@ function injectItemEffectStyles() {
   document.head.appendChild(style);
 }
 
+function injectSpectatorHudStyles() {
+  if (document.getElementById('redveinSpectatorHudStyle')) return;
+  const style = document.createElement('style');
+  style.id = 'redveinSpectatorHudStyle';
+  style.textContent = `
+    #redveinSpectatorHud {
+      display: none;
+      margin-bottom: 14px;
+    }
+    #redveinSpectatorHud.rv-spectator-visible {
+      display: block;
+    }
+    #redveinSpectatorHud .rv-spectator-panel {
+      border-radius: 22px;
+      border: 1px solid rgba(255, 204, 150, 0.24);
+      background: linear-gradient(180deg, rgba(40, 17, 26, 0.96), rgba(18, 11, 17, 0.96));
+      box-shadow: 0 18px 42px rgba(0,0,0,0.24), 0 0 28px rgba(255, 105, 140, 0.08);
+      padding: 14px 16px 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    #redveinSpectatorHud .rv-spectator-panel::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(circle at top right, rgba(112, 170, 255, 0.12), transparent 38%), radial-gradient(circle at top left, rgba(255, 112, 144, 0.12), transparent 34%);
+      opacity: 0.9;
+    }
+    #redveinSpectatorHud .rv-spectator-top,
+    #redveinSpectatorHud .rv-spectator-bottom {
+      position: relative;
+      z-index: 1;
+    }
+    #redveinSpectatorHud .rv-spectator-top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+    }
+    #redveinSpectatorHud .rv-spectator-title {
+      color: #fff6f7;
+      font-size: 14px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    #redveinSpectatorHud .rv-spectator-main {
+      color: #fff4f5;
+      font-size: 24px;
+      line-height: 1.2;
+      font-weight: 900;
+      text-shadow: 0 2px 18px rgba(0,0,0,0.28);
+    }
+    #redveinSpectatorHud .rv-spectator-sub {
+      margin-top: 8px;
+      color: rgba(255, 225, 231, 0.84);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    #redveinSpectatorHud .rv-spectator-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+      align-items: center;
+      min-width: 180px;
+    }
+    #redveinSpectatorHud .rv-spectator-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.06);
+      color: #ffe6ea;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      backdrop-filter: blur(3px);
+    }
+    #redveinSpectatorHud .rv-spectator-chip.turn-p1 {
+      border-color: rgba(255, 126, 152, 0.4);
+      background: rgba(120, 24, 46, 0.38);
+      color: #ffd8e1;
+    }
+    #redveinSpectatorHud .rv-spectator-chip.turn-p2 {
+      border-color: rgba(122, 164, 255, 0.38);
+      background: rgba(24, 40, 94, 0.38);
+      color: #dbe8ff;
+    }
+    #redveinSpectatorHud .rv-spectator-bottom {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    #redveinSpectatorHud .rv-spectator-score-card {
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.09);
+      background: rgba(255,255,255,0.05);
+      padding: 10px 12px;
+      min-height: 78px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    #redveinSpectatorHud .rv-spectator-score-card.p1 {
+      box-shadow: inset 0 0 0 1px rgba(255, 116, 150, 0.10);
+    }
+    #redveinSpectatorHud .rv-spectator-score-card.p2 {
+      box-shadow: inset 0 0 0 1px rgba(112, 160, 255, 0.10);
+    }
+    #redveinSpectatorHud .rv-spectator-score-label {
+      color: rgba(255, 220, 226, 0.72);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    #redveinSpectatorHud .rv-spectator-score-value {
+      margin-top: 6px;
+      color: #fff9fa;
+      font-size: 28px;
+      line-height: 1;
+      font-weight: 900;
+    }
+    #redveinSpectatorHud .rv-spectator-score-detail {
+      margin-top: 6px;
+      color: rgba(255, 230, 235, 0.76);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .player-box.rv-spectator-focus-box {
+      box-shadow: 0 0 0 1px rgba(255, 212, 160, 0.16), 0 0 24px rgba(255, 178, 120, 0.10), inset 0 0 0 1px rgba(255,255,255,0.02);
+      transform: translateY(-1px);
+    }
+    .score-item.rv-spectator-focus-score {
+      border-color: rgba(255, 217, 174, 0.42) !important;
+      box-shadow: 0 0 24px rgba(255, 173, 122, 0.16), inset 0 0 0 1px rgba(255,255,255,0.06);
+    }
+    @media (max-width: 1100px) {
+      #redveinSpectatorHud .rv-spectator-top {
+        grid-template-columns: 1fr;
+      }
+      #redveinSpectatorHud .rv-spectator-meta {
+        justify-content: flex-start;
+      }
+      #redveinSpectatorHud .rv-spectator-main {
+        font-size: 20px;
+      }
+      #redveinSpectatorHud .rv-spectator-bottom {
+        grid-template-columns: 1fr;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function ensureSpectatorHud() {
+  if (spectatorHudRoot) return;
+  injectSpectatorHudStyles();
+  const boardCenter = boardGrid?.parentElement;
+  const scoreBar = document.getElementById('scoreBar');
+  if (!boardCenter || !scoreBar) return;
+
+  spectatorHudRoot = document.createElement('section');
+  spectatorHudRoot.id = 'redveinSpectatorHud';
+  spectatorHudRoot.innerHTML = `
+    <div class="rv-spectator-panel">
+      <div class="rv-spectator-top">
+        <div>
+          <div class="rv-spectator-title" id="redveinSpectatorHudTitle">観戦ビュー</div>
+          <div class="rv-spectator-main" id="redveinSpectatorHudMain">-</div>
+          <div class="rv-spectator-sub" id="redveinSpectatorHudSub">-</div>
+        </div>
+        <div class="rv-spectator-meta" id="redveinSpectatorHudMeta"></div>
+      </div>
+      <div class="rv-spectator-bottom">
+        <div class="rv-spectator-score-card p1">
+          <div class="rv-spectator-score-label">P1</div>
+          <div class="rv-spectator-score-value" id="redveinSpectatorHudScoreP1">0</div>
+          <div class="rv-spectator-score-detail" id="redveinSpectatorHudScoreP1Detail">撃破 0 / 残り 0体</div>
+        </div>
+        <div class="rv-spectator-score-card p2">
+          <div class="rv-spectator-score-label">P2</div>
+          <div class="rv-spectator-score-value" id="redveinSpectatorHudScoreP2">0</div>
+          <div class="rv-spectator-score-detail" id="redveinSpectatorHudScoreP2Detail">撃破 0 / 残り 0体</div>
+        </div>
+      </div>
+    </div>
+  `;
+  boardCenter.insertBefore(spectatorHudRoot, scoreBar);
+  spectatorHudTitle = document.getElementById('redveinSpectatorHudTitle');
+  spectatorHudMain = document.getElementById('redveinSpectatorHudMain');
+  spectatorHudSub = document.getElementById('redveinSpectatorHudSub');
+  spectatorHudMeta = document.getElementById('redveinSpectatorHudMeta');
+  spectatorHudScoreP1 = document.getElementById('redveinSpectatorHudScoreP1');
+  spectatorHudScoreP2 = document.getElementById('redveinSpectatorHudScoreP2');
+}
+
+function getSpectatorHudState() {
+  if (!(roomSyncState.enabled && roomSyncState.role === 'spectator' && matchState.active)) return null;
+
+  const currentLabel = PLAYER_LABEL[matchState.currentPlayer] || 'プレイヤー';
+  const latestLog = matchState.log[0] || '最新の行動はここに表示されます。';
+  const chips = ['観戦中', `Round ${matchState.round}`];
+  let title = '観戦ビュー';
+  let main = `${currentLabel} の手番です`;
+  let sub = `${latestLog} / 手札は非公開で表示されます。`;
+  let activePlayer = matchState.currentPlayer;
+
+  if (matchState.phase === 'setup') {
+    const step = getCurrentSetupStep();
+    const remaining = step ? Math.max(0, step.count - matchState.placedInCurrentStep) : 0;
+    title = '観戦ビュー / 配置フェーズ';
+    main = `${PLAYER_LABEL[step?.player || matchState.currentPlayer]} が配置中です`;
+    sub = `残り ${remaining} 枚。最新ログ: ${latestLog}`;
+    chips.push('配置');
+    activePlayer = step?.player || matchState.currentPlayer;
+  } else if (matchState.phase === 'battle') {
+    chips.push('対戦中');
+    const pendingAction = getPendingAction();
+    const selectedItem = getSelectedItemCard();
+    if (pendingAction) {
+      if (pendingAction.type === 'move' || pendingAction.type === 'postAttackMove') {
+        main = `${currentLabel} が移動を確定中です`;
+        sub = `${pendingAction.unitName} を ${pendingAction.fromLabel} から ${pendingAction.toLabel} へ移動予定。`;
+        chips.push('移動確認');
+      } else {
+        main = `${currentLabel} が攻撃を確定中です`;
+        sub = `${pendingAction.unitName} → ${pendingAction.targetName} / 最新ログ: ${latestLog}`;
+        chips.push('攻撃確認');
+      }
+    } else if (getPostAttackMoveUnit()) {
+      const unit = getPostAttackMoveUnit();
+      main = `${currentLabel} が攻撃後移動を選択中です`;
+      sub = `${unit?.name || 'ユニット'} の追加移動先を選んでいます。`;
+      chips.push('追加移動');
+    } else if (isItemWindowOpen()) {
+      if (selectedItem) {
+        const selectedTarget = getSelectedItemTargetUnit();
+        main = `${currentLabel} がアイテムを使用中です`;
+        sub = selectedTarget
+          ? `${selectedItem.card_name} → ${selectedTarget.name} / 確定待ちです。`
+          : `${selectedItem.card_name} の対象を選択中です。`;
+        chips.push('アイテム');
+      } else {
+        main = `${currentLabel} のアイテムフェーズです`;
+        sub = 'アイテムを使うか、そのまま次へ進むかを選んでいます。';
+        chips.push('アイテム');
+      }
+    } else {
+      const moveText = matchState.turnState?.moved ? '移動済み' : '移動可能';
+      let attackText = matchState.turnState?.attacked ? '攻撃済み' : '攻撃可能';
+      if (currentPlayerCannotAttackAfterMove()) attackText = '移動後攻撃不可';
+      main = `${currentLabel} が盤面を操作中です`;
+      sub = `${moveText} / ${attackText} / 最新ログ: ${latestLog}`;
+      chips.push(matchState.currentPlayer === 'player1' ? 'P1 TURN' : 'P2 TURN');
+    }
+  } else if (matchState.phase === 'finished') {
+    title = '試合結果';
+    main = matchState.winner || '対戦が終了しました';
+    sub = `再戦・リセットの申請状況は下の試合操作から確認できます。`;
+    chips.push('終了');
+    if ((matchState.winner || '').includes('プレイヤー1')) activePlayer = 'player1';
+    else if ((matchState.winner || '').includes('プレイヤー2')) activePlayer = 'player2';
+    else activePlayer = '';
+  }
+
+  return {
+    title,
+    main,
+    sub,
+    chips,
+    activePlayer,
+    p1Points: calculatePoints('player1'),
+    p2Points: calculatePoints('player2'),
+    p1Defeated: Number(getPlayerState('player1').defeated || 0),
+    p2Defeated: Number(getPlayerState('player2').defeated || 0),
+    p1Living: getLivingUnits('player1').length,
+    p2Living: getLivingUnits('player2').length,
+  };
+}
+
+function updateSpectatorHud() {
+  ensureSpectatorHud();
+  const state = getSpectatorHudState();
+
+  player1Box?.classList.remove('rv-spectator-focus-box');
+  player2Box?.classList.remove('rv-spectator-focus-box');
+  player1PointsCard?.classList.remove('rv-spectator-focus-score');
+  player2PointsCard?.classList.remove('rv-spectator-focus-score');
+
+  if (!spectatorHudRoot) return;
+  if (!state) {
+    spectatorHudRoot.classList.remove('rv-spectator-visible');
+    return;
+  }
+
+  spectatorHudRoot.classList.add('rv-spectator-visible');
+  if (spectatorHudTitle) spectatorHudTitle.textContent = state.title;
+  if (spectatorHudMain) spectatorHudMain.textContent = state.main;
+  if (spectatorHudSub) spectatorHudSub.textContent = state.sub;
+  if (spectatorHudMeta) {
+    spectatorHudMeta.innerHTML = '';
+    state.chips.forEach((chip) => {
+      const node = document.createElement('div');
+      const turnClass = chip === 'P1 TURN' ? ' turn-p1' : chip === 'P2 TURN' ? ' turn-p2' : '';
+      node.className = `rv-spectator-chip${turnClass}`;
+      node.textContent = chip;
+      spectatorHudMeta.appendChild(node);
+    });
+  }
+  if (spectatorHudScoreP1) spectatorHudScoreP1.textContent = String(state.p1Points);
+  if (spectatorHudScoreP2) spectatorHudScoreP2.textContent = String(state.p2Points);
+  const p1Detail = spectatorHudRoot.querySelector('#redveinSpectatorHudScoreP1Detail');
+  const p2Detail = spectatorHudRoot.querySelector('#redveinSpectatorHudScoreP2Detail');
+  if (p1Detail) p1Detail.textContent = `撃破 ${state.p1Defeated} / 残り ${state.p1Living}体`;
+  if (p2Detail) p2Detail.textContent = `撃破 ${state.p2Defeated} / 残り ${state.p2Living}体`;
+
+  if (state.activePlayer === 'player1') {
+    player1Box?.classList.add('rv-spectator-focus-box');
+    player1PointsCard?.classList.add('rv-spectator-focus-score');
+  } else if (state.activePlayer === 'player2') {
+    player2Box?.classList.add('rv-spectator-focus-box');
+    player2PointsCard?.classList.add('rv-spectator-focus-score');
+  }
+}
+
 function ensureItemEffectOverlay() {
   if (itemEffectRoot && document.body.contains(itemEffectRoot)) return itemEffectRoot;
   injectItemEffectStyles();
@@ -2494,6 +2834,14 @@ function playSfx(kind) {
       scheduleTone(context, { start: start + 0.11, duration: 0.12, release: 0.06, frequency: 174.61, endFrequency: 146.83, type: 'triangle', gain: 0.28 });
       scheduleTone(context, { start: start + 0.23, duration: 0.14, release: 0.08, frequency: 130.81, endFrequency: 98, type: 'triangle', gain: 0.3 });
       break;
+    case 'deploy':
+      scheduleTone(context, { start, duration: 0.045, release: 0.03, frequency: 410, endFrequency: 320, type: 'square', gain: 0.22 });
+      scheduleTone(context, { start: start + 0.028, duration: 0.07, release: 0.04, frequency: 240, endFrequency: 180, type: 'triangle', gain: 0.18 });
+      break;
+    case 'move':
+      scheduleTone(context, { start, duration: 0.05, release: 0.03, frequency: 680, endFrequency: 520, type: 'triangle', gain: 0.12 });
+      scheduleTone(context, { start: start + 0.02, duration: 0.08, release: 0.05, frequency: 240, endFrequency: 180, type: 'sine', gain: 0.14 });
+      break;
     default:
       break;
   }
@@ -2622,6 +2970,7 @@ function applyRoomSetupPlacement(data = {}) {
 
   const placedCard = cardMap.get(cardId);
   addLog(`${PLAYER_LABEL[playerKey]} が ${(placedCard && placedCard.card_name) || cardId} を配置しました`);
+  playSfx('deploy');
 
   if (previousPhase !== 'battle' && matchState.phase === 'battle') {
     beginTurn('player1');
@@ -5043,6 +5392,7 @@ function renderMatchArea() {
   renderItemConfirmBox();
   renderActionConfirmBox();
   updateActionGuide();
+  updateSpectatorHud();
 
   if (shouldAnimateCombatFx && combatFxBoardSnapshot && combatFxTurnSnapshot) {
     if (combatFxSkipNextSnapshotDiff) {
@@ -5186,6 +5536,7 @@ function placeSelectedReserveCard(targetIndex) {
   matchState.placedInCurrentStep += 1;
   const placedCard = cardMap.get(cardId);
   addLog(`${PLAYER_LABEL[step.player]} が ${(placedCard && placedCard.card_name) || cardId} を配置しました`);
+  playSfx('deploy');
 
   if (matchState.placedInCurrentStep >= step.count) {
     matchState.setupStepIndex += 1;
@@ -5251,6 +5602,7 @@ function applyPendingMove(pendingAction) {
   matchState.actionMode = null;
   clearPendingAction();
   addLog(`${PLAYER_LABEL[unit.owner]} の ${unit.name} が ${pendingAction.fromLabel} から ${pendingAction.toLabel} へ移動しました`);
+  playSfx('move');
   if (isGlobalFieldEffectActive('field_no_attack_after_move')) {
     addLog('環境カード「暴風域」により、移動したユニットはこの手番に攻撃できません');
   }
@@ -5310,6 +5662,7 @@ function applyPendingPostAttackMove(pendingAction) {
   matchState.selectedUnitId = null;
   clearPendingAction();
   addLog(`${PLAYER_LABEL[unit.owner]} の ${unit.name} が効果で ${pendingAction.fromLabel} から ${pendingAction.toLabel} へ追加移動しました`);
+  playSfx('move');
   renderMatchArea();
   endTurn();
 }
@@ -6156,5 +6509,6 @@ setupSfx();
 setupBgm();
 ensureActionGuide();
 ensureItemShowcase();
+ensureSpectatorHud();
 ensureCombatFxReady();
 loadCards();
