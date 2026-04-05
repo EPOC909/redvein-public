@@ -8,6 +8,53 @@ const HOST = '0.0.0.0';
 const PORT = process.env.PORT || 3000;
 const ROOT_DIR = __dirname;
 const CARD_JSON_PATH = path.join(ROOT_DIR, 'data', 'redvein_cards.json');
+const UNLOCK_TOKEN_SECRET = process.env.REDVEIN_UNLOCK_SECRET || 'redvein-unlock-secret-v18';
+
+const SPECIAL_CARDS = [
+  {
+    card_id: 'SP-001',
+    card_name: '血月の杯',
+    type: 'item',
+    rarity: 'SP',
+    hp: null,
+    atk: null,
+    move: null,
+    effect_text: '味方1体のHPを全回復する',
+    effect_type: 'full_heal_single',
+    image_file: 'SP-001.png',
+    unlock_only: true,
+  },
+  {
+    card_id: 'SP-010',
+    card_name: '真祖血姫 ヴェイン',
+    type: 'battle',
+    rarity: 'SP',
+    hp: 6,
+    atk: 3,
+    move: 2,
+    effect_text: '攻撃するたび自身のHPを1回復する',
+    effect_type: 'gain_hp_1_on_attack_permanent',
+    image_file: 'SP-010.png',
+    unlock_only: true,
+  },
+];
+
+const UNLOCK_CODE_DEFS = [
+  {
+    code: 'BLOOD-MOON-001',
+    normalizedCode: 'BLOODMOON001',
+    label: '血月の杯',
+    cardIds: ['SP-001'],
+  },
+  {
+    code: 'VEIN-TRUE-010',
+    normalizedCode: 'VEINTRUE010',
+    label: '真祖血姫 ヴェイン',
+    cardIds: ['SP-010'],
+  },
+];
+
+const UNLOCK_CODE_MAP = new Map(UNLOCK_CODE_DEFS.map((entry) => [entry.normalizedCode, entry]));
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -20,11 +67,15 @@ const MIME_TYPES = {
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.txt': 'text/plain; charset=utf-8',
+  '.mp3': 'audio/mpeg',
 };
 
 const rooms = new Map();
-const cards = loadCards();
+const baseCards = loadCards();
+const cards = [...baseCards, ...SPECIAL_CARDS];
 const cardMap = new Map(cards.map((card) => [card.card_id, card]));
+const SPECIAL_CARD_IDS = new Set(SPECIAL_CARDS.map((card) => card.card_id));
+const BASE_CARD_IDS = new Set(baseCards.map((card) => card.card_id));
 const validCardIds = new Set(cards.map((card) => card.card_id));
 const SETUP_SEQUENCE = [
   { player: 'player1', count: 3 },
@@ -46,6 +97,141 @@ function loadCards() {
     console.error('カードJSONの読み込みに失敗しました。', error);
     return [];
   }
+}
+
+
+function normalizeSaveKey(value) {
+  return String(value || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+}
+
+function normalizeUnlockCode(value) {
+  return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 1024 * 128) {
+        reject(new Error('payload too large'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      if (!raw) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(raw));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function base64UrlEncode(input) {
+  return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlDecode(input) {
+  const normalized = String(input || '').replace(/-/g, '+').replace(/_/g, '/');
+  const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+  return Buffer.from(normalized + padding, 'base64').toString('utf-8');
+}
+
+function signUnlockBody(encodedBody) {
+  return crypto.createHmac('sha256', UNLOCK_TOKEN_SECRET).update(encodedBody).digest('base64url');
+}
+
+function issueUnlockToken(saveKey, cardIds) {
+  const normalizedSaveKey = normalizeSaveKey(saveKey);
+  const ids = [...new Set((Array.isArray(cardIds) ? cardIds : []).map(String).filter((id) => SPECIAL_CARD_IDS.has(id)))].sort();
+  const payload = {
+    v: 1,
+    saveKey: normalizedSaveKey,
+    cardIds: ids,
+  };
+  const encodedBody = base64UrlEncode(JSON.stringify(payload));
+  const signature = signUnlockBody(encodedBody);
+  return `${encodedBody}.${signature}`;
+}
+
+function verifyUnlockToken(token, saveKey = '') {
+  const source = String(token || '').trim();
+  if (!source.includes('.')) return null;
+  const [encodedBody, signature] = source.split('.');
+  if (!encodedBody || !signature) return null;
+  const expected = signUnlockBody(encodedBody);
+  if (signature !== expected) return null;
+  try {
+    const payload = JSON.parse(base64UrlDecode(encodedBody));
+    const payloadSaveKey = normalizeSaveKey(payload?.saveKey || '');
+    const expectedSaveKey = normalizeSaveKey(saveKey || payloadSaveKey);
+    if (!payloadSaveKey || payloadSaveKey !== expectedSaveKey) return null;
+    const cardIds = [...new Set((Array.isArray(payload?.cardIds) ? payload.cardIds : []).map(String).filter((id) => SPECIAL_CARD_IDS.has(id)))];
+    if (!cardIds.length) return null;
+    return {
+      saveKey: payloadSaveKey,
+      cardIds,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function sanitizeUnlockTokens(tokens) {
+  if (!Array.isArray(tokens)) return [];
+  const deduped = [];
+  const seen = new Set();
+  for (const token of tokens) {
+    const value = String(token || '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    deduped.push(value);
+    if (deduped.length >= 24) break;
+  }
+  return deduped;
+}
+
+function collectUnlockedCardIds(saveKey, unlockTokens) {
+  const ids = new Set();
+  for (const token of sanitizeUnlockTokens(unlockTokens)) {
+    const verified = verifyUnlockToken(token, saveKey);
+    if (!verified) continue;
+    verified.cardIds.forEach((id) => ids.add(id));
+  }
+  return ids;
+}
+
+function buildCatalogForSaveKey(saveKey, unlockTokens) {
+  const unlockedCardIds = collectUnlockedCardIds(saveKey, unlockTokens);
+  const visibleCards = [
+    ...baseCards,
+    ...SPECIAL_CARDS.filter((card) => unlockedCardIds.has(card.card_id)),
+  ];
+  return {
+    cards: visibleCards,
+    unlockedCardIds: [...unlockedCardIds],
+  };
+}
+
+function sanitizeUnlockAuth(data) {
+  return {
+    saveKey: normalizeSaveKey(data?.saveKey || ''),
+    unlockTokens: sanitizeUnlockTokens(data?.unlockTokens),
+  };
+}
+
+function sendJson(res, statusCode, payload) {
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end(JSON.stringify(payload));
 }
 
 function send(ws, payload) {
@@ -94,11 +280,16 @@ function sanitizeDeckPayload(deck) {
   };
 }
 
-function validateDeckPayload(deck) {
+function validateDeckPayload(deck, saveKey = '', unlockTokens = []) {
   if (!deck) return false;
   if (deck.battle.length !== 5 || deck.item.length !== 4 || deck.field.length !== 1) return false;
   const ids = [...deck.battle, ...deck.item, ...deck.field];
-  return ids.every((id) => validCardIds.has(id));
+  const unlockedCardIds = collectUnlockedCardIds(saveKey, unlockTokens);
+  return ids.every((id) => {
+    if (BASE_CARD_IDS.has(id)) return true;
+    if (SPECIAL_CARD_IDS.has(id)) return unlockedCardIds.has(id);
+    return false;
+  });
 }
 
 function participantSnapshot(slot) {
@@ -204,6 +395,8 @@ function attachParticipant(room, role, data, ws) {
     displayName: data.displayName || '名無しプレイヤー',
     deckName: data.deckName || deckPayload?.name || 'デッキ未選択',
     deckPayload,
+    saveKey: normalizeSaveKey(data.saveKey || ''),
+    unlockTokens: sanitizeUnlockTokens(data.unlockTokens),
     reconnectToken,
     ws,
     disconnectedAt: 0,
@@ -802,15 +995,16 @@ function assertRoomAndMeta(roomId, ws) {
 
 function handleCreateRoom(data, ws) {
   const deckPayload = sanitizeDeckPayload(data.deckPayload);
-  if (!validateDeckPayload(deckPayload)) {
-    send(ws, { type: 'error', message: '有効な保存済みデッキを選んでからルーム作成してください。' });
+  const unlockAuth = sanitizeUnlockAuth(data);
+  if (!validateDeckPayload(deckPayload, unlockAuth.saveKey, unlockAuth.unlockTokens)) {
+    send(ws, { type: 'error', message: '有効な保存済みデッキを選んでからルーム作成してください。特別カードを含む場合は先に解放してください。' });
     return;
   }
   let roomId = makeRoomId();
   while (rooms.has(roomId)) roomId = makeRoomId();
   const room = createEmptyRoom(roomId);
   rooms.set(roomId, room);
-  attachParticipant(room, 'p1', { ...data, deckPayload }, ws);
+  attachParticipant(room, 'p1', { ...data, deckPayload, ...unlockAuth }, ws);
 }
 
 function handleJoinRoom(data, ws, asSpectator = false) {
@@ -820,13 +1014,14 @@ function handleJoinRoom(data, ws, asSpectator = false) {
     send(ws, { type: 'error', message: 'そのルームは見つかりません。' });
     return;
   }
+  const unlockAuth = sanitizeUnlockAuth(data);
   if (!asSpectator) {
     const deckPayload = sanitizeDeckPayload(data.deckPayload);
-    if (!validateDeckPayload(deckPayload)) {
-      send(ws, { type: 'error', message: '有効な保存済みデッキを選んでからプレイヤー参加してください。' });
+    if (!validateDeckPayload(deckPayload, unlockAuth.saveKey, unlockAuth.unlockTokens)) {
+      send(ws, { type: 'error', message: '有効な保存済みデッキを選んでからプレイヤー参加してください。特別カードを含む場合は先に解放してください。' });
       return;
     }
-    data = { ...data, deckPayload };
+    data = { ...data, deckPayload, ...unlockAuth };
   }
   let role = null;
   if (asSpectator) role = room.spectator ? null : 'spectator';
@@ -1378,9 +1573,53 @@ function cleanupExpiredReconnectSlots() {
 
 setInterval(cleanupExpiredReconnectSlots, 15000);
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const reqUrl = new URL(req.url, `http://${req.headers.host}`);
   let pathname = decodeURIComponent(reqUrl.pathname);
+
+  if (req.method === 'POST' && pathname === '/api/cards') {
+    try {
+      const body = await readJsonBody(req);
+      const unlockAuth = sanitizeUnlockAuth(body);
+      const catalog = buildCatalogForSaveKey(unlockAuth.saveKey, unlockAuth.unlockTokens);
+      sendJson(res, 200, catalog);
+    } catch (error) {
+      console.error(error);
+      sendJson(res, 400, { error: 'カード一覧の取得に失敗しました。' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/unlock-card') {
+    try {
+      const body = await readJsonBody(req);
+      const saveKey = normalizeSaveKey(body?.saveKey || '');
+      const normalizedCode = normalizeUnlockCode(body?.code || '');
+      if (!saveKey) {
+        sendJson(res, 400, { error: '保存キーを入れてください。' });
+        return;
+      }
+      const def = UNLOCK_CODE_MAP.get(normalizedCode);
+      if (!def) {
+        sendJson(res, 404, { error: '解放コードが一致しません。' });
+        return;
+      }
+      const token = issueUnlockToken(saveKey, def.cardIds);
+      const unlockedCards = def.cardIds.map((id) => cardMap.get(id)).filter(Boolean);
+      sendJson(res, 200, {
+        ok: true,
+        token,
+        codeLabel: def.label,
+        cardIds: def.cardIds,
+        unlockedCards,
+      });
+    } catch (error) {
+      console.error(error);
+      sendJson(res, 400, { error: '解放コードの確認に失敗しました。' });
+    }
+    return;
+  }
+
   if (pathname === '/') pathname = '/index.html';
   const safePath = path.normalize(pathname).replace(/^([/]*\.{1,2}[/]+)+/, '');
   const filePath = path.join(ROOT_DIR, safePath);

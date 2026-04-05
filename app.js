@@ -1,7 +1,11 @@
 const DATA_PATH = './data/redvein_cards.json';
+const CARDS_API_PATH = './api/cards';
+const UNLOCK_API_PATH = './api/unlock-card';
 const IMAGE_BASE_PATH = './cards/';
 const OWNED_STORAGE_KEY = 'redvein_owned_cards_v1';
 const DECKS_STORAGE_KEY = 'redvein_saved_decks_v1';
+const UNLOCK_SAVE_KEY_STORAGE_KEY = 'redvein_unlock_save_key_v1';
+const UNLOCK_TOKENS_STORAGE_KEY = 'redvein_unlock_tokens_v1';
 const DECK_LIMITS = { battle: 5, item: 4, field: 1 };
 const SETUP_SEQUENCE = [
   { player: 'player1', count: 3 },
@@ -160,6 +164,17 @@ let logHidden = true;
 let matchState = createEmptyMatchState();
 let roomSyncState = { enabled: false, role: '', battleControlsEnabled: false, pendingSetupRequest: false, pendingMoveRequest: false, pendingAttackRequest: false, pendingItemUseRequest: false, pendingFinishItemPhaseRequest: false, pendingEndTurnRequest: false, onSetupPlaceRequest: null, onMoveRequest: null, onAttackRequest: null, onItemUseRequest: null, onFinishItemPhaseRequest: null, onEndTurnRequest: null };
 
+let unlockSaveKey = '';
+let unlockTokens = [];
+let unlockStatusState = { message: '特別なカードを持っている人は、解放コードを入力してください。', kind: 'info' };
+let unlockPanelRoot = null;
+let unlockSaveKeyInput = null;
+let unlockCodeInput = null;
+let unlockRedeemButton = null;
+let unlockCopyButton = null;
+let unlockResetButton = null;
+let unlockStatusBox = null;
+let unlockOwnedList = null;
 const SFX_STORAGE_KEY = 'redvein_sfx_enabled_v1';
 const SFX_MASTER_VOLUME = 0.08;
 const BGM_STORAGE_KEY = 'redvein_bgm_enabled_v1';
@@ -3893,6 +3908,220 @@ function clearError() {
   errorBox.classList.add('hidden');
 }
 
+function generateUnlockSaveKey() {
+  return `RV-${Math.random().toString(36).slice(2, 6).toUpperCase()}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+}
+
+function normalizeUnlockTokens(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((entry) => String(entry || '').trim()).filter(Boolean))].slice(0, 24);
+}
+
+function loadUnlockSaveKey() {
+  const raw = String(localStorage.getItem(UNLOCK_SAVE_KEY_STORAGE_KEY) || '').trim();
+  if (/^[A-Za-z0-9_-]{4,40}$/.test(raw)) return raw;
+  const generated = generateUnlockSaveKey();
+  localStorage.setItem(UNLOCK_SAVE_KEY_STORAGE_KEY, generated);
+  return generated;
+}
+
+function saveUnlockSaveKey() {
+  localStorage.setItem(UNLOCK_SAVE_KEY_STORAGE_KEY, unlockSaveKey);
+}
+
+function loadUnlockTokens() {
+  try {
+    const raw = localStorage.getItem(UNLOCK_TOKENS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return normalizeUnlockTokens(parsed);
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}
+
+function saveUnlockTokens() {
+  localStorage.setItem(UNLOCK_TOKENS_STORAGE_KEY, JSON.stringify(unlockTokens));
+}
+
+function getUnlockAuthPayload() {
+  return {
+    saveKey: unlockSaveKey,
+    unlockTokens: [...unlockTokens],
+  };
+}
+
+function getUnlockedSpecialCards() {
+  return allCards.filter((card) => card && card.unlock_only);
+}
+
+function ensureUnlockedCardsOwned() {
+  let changed = false;
+  getUnlockedSpecialCards().forEach((card) => {
+    if (!ownedCardIds.has(card.card_id)) {
+      ownedCardIds.add(card.card_id);
+      changed = true;
+    }
+  });
+  if (changed) saveOwnedCards();
+}
+
+function setUnlockStatus(message, kind = 'info') {
+  unlockStatusState = { message, kind };
+  if (!unlockStatusBox) return;
+  unlockStatusBox.textContent = message;
+  unlockStatusBox.className = `unlock-status-box ${kind}`;
+}
+
+async function copyTextSafely(value, okMessage) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(value);
+      setUnlockStatus(okMessage, 'success');
+      return;
+    }
+  } catch (error) {
+    console.error(error);
+  }
+  window.prompt('コピーしてください', value);
+}
+
+function renderUnlockPanel() {
+  if (!unlockPanelRoot) return;
+  if (unlockSaveKeyInput) unlockSaveKeyInput.value = unlockSaveKey;
+  const unlockedCards = getUnlockedSpecialCards();
+  if (unlockOwnedList) {
+    if (!unlockedCards.length) {
+      unlockOwnedList.innerHTML = '<div class="unlock-owned-empty">まだ特別カードは解放されていません。</div>';
+    } else {
+      unlockOwnedList.innerHTML = '';
+      unlockedCards.forEach((card) => {
+        const chip = document.createElement('div');
+        chip.className = 'unlock-owned-chip';
+        chip.innerHTML = `<strong>${card.card_name}</strong><span>${card.card_id}</span>`;
+        unlockOwnedList.appendChild(chip);
+      });
+    }
+  }
+  setUnlockStatus(unlockStatusState.message, unlockStatusState.kind);
+}
+
+function ensureUnlockPanel() {
+  if (unlockPanelRoot) return;
+  const roomSection = document.querySelector('.room-section');
+  if (!roomSection) return;
+  const anchor = roomSection.querySelector('.room-status-grid') || roomSection.querySelector('.room-grid');
+  unlockPanelRoot = document.createElement('section');
+  unlockPanelRoot.className = 'room-status-box card-subpanel unlock-card-panel';
+  unlockPanelRoot.innerHTML = `
+    <div class="unlock-panel-head">
+      <div>
+        <h3>特別カード解放</h3>
+        <p class="panel-note">解放コードを知っている人だけ、ネタバレなしでカードを追加できます。</p>
+      </div>
+      <div class="unlock-panel-badge">SECRET</div>
+    </div>
+    <div class="unlock-savekey-row">
+      <label>保存キー</label>
+      <input id="unlockSaveKeyInput" type="text" readonly />
+      <button id="unlockCopyButton" class="button secondary" type="button">コピー</button>
+      <button id="unlockResetButton" class="button danger" type="button">新しい保存キー</button>
+    </div>
+    <div class="unlock-code-row">
+      <label for="unlockCodeInput">解放コード</label>
+      <input id="unlockCodeInput" type="text" placeholder="例: BLOOD-MOON-001" />
+      <button id="unlockRedeemButton" class="button primary" type="button">解放する</button>
+    </div>
+    <div id="unlockStatusBox" class="unlock-status-box info"></div>
+    <div class="unlock-note-list">
+      <div>・この試作版は、<strong>保存キー + 解放コード</strong> で使います。</div>
+      <div>・同じブラウザなら、解放済みの証明はそのまま残ります。</div>
+      <div>・使えるサンプルコード: <code>BLOOD-MOON-001</code> / <code>VEIN-TRUE-010</code></div>
+    </div>
+    <div class="unlock-owned-block">
+      <div class="unlock-owned-title">解放済みの特別カード</div>
+      <div id="unlockOwnedList" class="unlock-owned-list"></div>
+    </div>
+  `;
+  if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(unlockPanelRoot, anchor.nextSibling);
+  else roomSection.appendChild(unlockPanelRoot);
+
+  unlockSaveKeyInput = unlockPanelRoot.querySelector('#unlockSaveKeyInput');
+  unlockCodeInput = unlockPanelRoot.querySelector('#unlockCodeInput');
+  unlockRedeemButton = unlockPanelRoot.querySelector('#unlockRedeemButton');
+  unlockCopyButton = unlockPanelRoot.querySelector('#unlockCopyButton');
+  unlockResetButton = unlockPanelRoot.querySelector('#unlockResetButton');
+  unlockStatusBox = unlockPanelRoot.querySelector('#unlockStatusBox');
+  unlockOwnedList = unlockPanelRoot.querySelector('#unlockOwnedList');
+
+  unlockCopyButton?.addEventListener('click', () => {
+    copyTextSafely(unlockSaveKey, '保存キーをコピーしました。');
+  });
+
+  unlockResetButton?.addEventListener('click', async () => {
+    const confirmed = window.confirm('保存キーを新しくすると、今の解放証明は使えなくなります。続けますか？');
+    if (!confirmed) return;
+    unlockSaveKey = generateUnlockSaveKey();
+    unlockTokens = [];
+    saveUnlockSaveKey();
+    saveUnlockTokens();
+    setUnlockStatus('保存キーを新しくしました。必要なコードをもう一度入力してください。', 'warning');
+    await loadCards();
+  });
+
+  async function redeemUnlockCode() {
+    const code = String(unlockCodeInput?.value || '').trim();
+    if (!code) {
+      setUnlockStatus('先に解放コードを入力してください。', 'warning');
+      return;
+    }
+    if (unlockRedeemButton) unlockRedeemButton.disabled = true;
+    setUnlockStatus('解放コードを確認しています…', 'info');
+    try {
+      const response = await fetch(UNLOCK_API_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ saveKey: unlockSaveKey, code }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || '解放コードを確認できませんでした。');
+      }
+      const token = String(payload.token || '').trim();
+      if (token && !unlockTokens.includes(token)) {
+        unlockTokens.push(token);
+        unlockTokens = normalizeUnlockTokens(unlockTokens);
+        saveUnlockTokens();
+      }
+      const unlockedCards = Array.isArray(payload.unlockedCards) ? payload.unlockedCards : [];
+      unlockedCards.forEach((card) => {
+        if (card?.card_id) ownedCardIds.add(card.card_id);
+      });
+      saveOwnedCards();
+      if (unlockCodeInput) unlockCodeInput.value = '';
+      await loadCards();
+      const names = unlockedCards.map((card) => card.card_name).filter(Boolean).join(' / ');
+      setUnlockStatus(names ? `解放成功: ${names}` : '特別カードを解放しました。', 'success');
+      renderUnlockPanel();
+    } catch (error) {
+      console.error(error);
+      setUnlockStatus(error.message || '解放に失敗しました。', 'error');
+    } finally {
+      if (unlockRedeemButton) unlockRedeemButton.disabled = false;
+    }
+  }
+
+  unlockRedeemButton?.addEventListener('click', redeemUnlockCode);
+  unlockCodeInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      redeemUnlockCode();
+    }
+  });
+
+  renderUnlockPanel();
+}
+
 function loadOwnedCards() {
   try {
     const raw = localStorage.getItem(OWNED_STORAGE_KEY);
@@ -4156,9 +4385,16 @@ function createCardElement(card) {
   node.querySelector('.card-effect-type').textContent = `effect_type: ${card.effect_type || 'none'}`;
 
   const ownedButton = node.querySelector('.owned-button');
-  ownedButton.textContent = isOwned ? '所持済み（クリックで解除）' : '所持にする';
-  if (isOwned) ownedButton.classList.add('is-owned');
-  ownedButton.addEventListener('click', () => toggleOwned(card.card_id));
+  if (card.unlock_only) {
+    ownedButton.textContent = '解放済みカード';
+    ownedButton.disabled = true;
+    ownedButton.classList.add('is-owned', 'unlock-owned-button');
+    node.classList.add('unlock-card-visible');
+  } else {
+    ownedButton.textContent = isOwned ? '所持済み（クリックで解除）' : '所持にする';
+    if (isOwned) ownedButton.classList.add('is-owned');
+    ownedButton.addEventListener('click', () => toggleOwned(card.card_id));
+  }
 
   const deckButton = node.querySelector('.deck-button');
   if (!isOwned) {
@@ -6790,23 +7026,31 @@ function renderFieldLog(playerKey) {
 async function loadCards() {
   try {
     clearError();
-    const response = await fetch(DATA_PATH, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`JSONの読み込みに失敗しました: ${response.status}`);
+    const response = await fetch(CARDS_API_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify(getUnlockAuthPayload()),
+    });
+    if (!response.ok) throw new Error(`カード一覧の取得に失敗しました: ${response.status}`);
 
-    const data = await response.json();
-    if (!Array.isArray(data)) throw new Error('JSONの形式が配列ではありません。');
+    const payload = await response.json();
+    const data = Array.isArray(payload?.cards) ? payload.cards : [];
+    if (!Array.isArray(data)) throw new Error('カード一覧の形式が不正です。');
 
     allCards = data;
     cardMap = new Map(allCards.map((card) => [card.card_id, card]));
     ownedCardIds = loadOwnedCards();
+    ensureUnlockedCardsOwned();
     savedDecks = loadSavedDecks();
     renderSavedDeckOptions();
     renderDeckPanel();
     renderCards();
     renderMatchArea();
+    renderUnlockPanel();
   } catch (error) {
     console.error(error);
-    showError('カードまたは保存済みデッキの読み込みで問題がありました。data/redvein_cards.json と保存済みデッキを確認してください。');
+    showError('カード一覧または解放カードの読み込みで問題がありました。サーバー更新後に再読み込みしてください。');
   }
 }
 
@@ -6819,9 +7063,11 @@ clearOwnedButton.addEventListener('click', () => {
   const confirmed = window.confirm('所持チェックをすべて解除します。よろしいですか？');
   if (!confirmed) return;
   ownedCardIds = new Set();
+  ensureUnlockedCardsOwned();
   saveOwnedCards();
   resetCurrentDeck();
   renderCards();
+  renderUnlockPanel();
 });
 resetDeckButton.addEventListener('click', () => {
   const confirmed = window.confirm('現在作成中のデッキを初期化します。よろしいですか？');
@@ -7116,12 +7362,16 @@ window.REDVEIN_ROOM_API = {
   applyRoomGameFinished,
   getCombatFxHoldMsRemaining,
   notifyRoomRequestError,
+  getUnlockAuthPayload,
 };
 
+unlockSaveKey = loadUnlockSaveKey();
+unlockTokens = loadUnlockTokens();
 setupSfx();
 setupBgm();
 ensureActionGuide();
 ensureItemShowcase();
 ensureSpectatorHud();
 ensureCombatFxReady();
+ensureUnlockPanel();
 loadCards();

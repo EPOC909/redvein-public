@@ -1847,3 +1847,135 @@ body.log-hidden .floating-log-panel {
 #actionPanelRight .action-buttons-grid.has-mirrored-skip-button > #itemPhaseDoneButtonRight {
   display: none !important;
 }
+
+.unlock-card-panel {
+  margin-top: 16px;
+  border: 1px solid rgba(204, 76, 96, 0.28);
+  background: linear-gradient(180deg, rgba(42, 16, 22, 0.94), rgba(22, 10, 16, 0.94));
+  box-shadow: 0 20px 42px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+.unlock-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.unlock-panel-badge {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: #ffd6dc;
+  background: rgba(153, 31, 53, 0.34);
+  border: 1px solid rgba(255, 128, 149, 0.28);
+}
+
+.unlock-savekey-row,
+.unlock-code-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.unlock-code-row {
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+}
+
+.unlock-savekey-row label,
+.unlock-code-row label,
+.unlock-owned-title {
+  font-weight: 700;
+  color: #ffd9de;
+}
+
+.unlock-savekey-row input,
+.unlock-code-row input {
+  min-width: 0;
+}
+
+.unlock-status-box {
+  margin-top: 12px;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+}
+
+.unlock-status-box.info { color: #efe6ea; }
+.unlock-status-box.success { color: #d5ffdb; background: rgba(49, 116, 63, 0.18); border-color: rgba(120, 214, 136, 0.28); }
+.unlock-status-box.warning { color: #fff1c0; background: rgba(141, 96, 21, 0.18); border-color: rgba(241, 193, 103, 0.26); }
+.unlock-status-box.error { color: #ffd7dd; background: rgba(128, 24, 38, 0.18); border-color: rgba(255, 116, 140, 0.26); }
+
+.unlock-note-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+  color: rgba(245, 228, 233, 0.82);
+  font-size: 12px;
+}
+
+.unlock-note-list code {
+  font-family: inherit;
+  border-radius: 8px;
+  padding: 2px 6px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.unlock-owned-block {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.unlock-owned-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.unlock-owned-empty {
+  font-size: 12px;
+  color: rgba(242, 227, 232, 0.74);
+}
+
+.unlock-owned-chip {
+  min-width: 160px;
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 111, 136, 0.22);
+  background: linear-gradient(180deg, rgba(124, 28, 53, 0.22), rgba(39, 16, 23, 0.34));
+}
+
+.unlock-owned-chip strong {
+  color: #fff1f4;
+}
+
+.unlock-owned-chip span {
+  font-size: 12px;
+  color: rgba(242, 226, 232, 0.76);
+}
+
+.unlock-owned-button {
+  opacity: 0.95;
+}
+
+.unlock-card-visible .card-rarity {
+  color: #ffd28a;
+}
+
+@media (max-width: 900px) {
+  .unlock-savekey-row,
+  .unlock-code-row {
+    grid-template-columns: 1fr;
+  }
+}

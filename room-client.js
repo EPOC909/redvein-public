@@ -1,6 +1,8 @@
 (() => {
   const DECKS_STORAGE_KEY = 'redvein_saved_decks_v1';
   const ROOM_STORAGE_KEY = 'redvein_room_session_v1';
+  const UNLOCK_SAVE_KEY_STORAGE_KEY = 'redvein_unlock_save_key_v1';
+  const UNLOCK_TOKENS_STORAGE_KEY = 'redvein_unlock_tokens_v1';
 
   const displayNameInput = document.getElementById('roomDisplayNameInput');
   const roomDeckSelect = document.getElementById('roomDeckSelect');
@@ -649,6 +651,30 @@ ${roomLog.textContent}` : line;
     });
   }
 
+  function readUnlockAuthPayload() {
+    const apiPayload = window.REDVEIN_ROOM_API && typeof window.REDVEIN_ROOM_API.getUnlockAuthPayload === 'function'
+      ? window.REDVEIN_ROOM_API.getUnlockAuthPayload()
+      : null;
+    if (apiPayload && typeof apiPayload === 'object') {
+      return {
+        saveKey: String(apiPayload.saveKey || '').trim(),
+        unlockTokens: Array.isArray(apiPayload.unlockTokens) ? apiPayload.unlockTokens.map(String).filter(Boolean) : [],
+      };
+    }
+    let unlockTokens = [];
+    try {
+      const raw = localStorage.getItem(UNLOCK_TOKENS_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      unlockTokens = Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+    } catch (error) {
+      console.error(error);
+    }
+    return {
+      saveKey: String(localStorage.getItem(UNLOCK_SAVE_KEY_STORAGE_KEY) || '').trim(),
+      unlockTokens,
+    };
+  }
+
   function getDisplayName() {
     return displayNameInput.value.trim() || '名無しプレイヤー';
   }
@@ -925,11 +951,14 @@ ${roomLog.textContent}` : line;
     try {
       currentDeckName = deckPayload.name;
       await ensureSocket();
+      const unlockAuth = readUnlockAuthPayload();
       sendMessage({
         type: 'create_room',
         displayName: getDisplayName(),
         deckName: currentDeckName,
         deckPayload,
+        saveKey: unlockAuth.saveKey,
+        unlockTokens: unlockAuth.unlockTokens,
       });
     } catch (error) {
       console.error(error);
@@ -949,12 +978,15 @@ ${roomLog.textContent}` : line;
     try {
       currentDeckName = deckPayload?.name || '';
       await ensureSocket();
+      const unlockAuth = readUnlockAuthPayload();
       sendMessage({
         type: isSpectator ? 'spectate_room' : 'join_room',
         roomId,
         displayName: getDisplayName(),
         deckName: deckPayload?.name || '',
         deckPayload,
+        saveKey: unlockAuth.saveKey,
+        unlockTokens: unlockAuth.unlockTokens,
       });
     } catch (error) {
       console.error(error);
