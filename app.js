@@ -126,7 +126,9 @@ let roomSyncState = { enabled: false, role: '', battleControlsEnabled: false, pe
 const SFX_STORAGE_KEY = 'redvein_sfx_enabled_v1';
 const SFX_MASTER_VOLUME = 0.08;
 const BGM_STORAGE_KEY = 'redvein_bgm_enabled_v1';
-const BGM_VOLUME = 0.22;
+const BGM_VOLUME_STORAGE_KEY = 'redvein_bgm_volume_level_v1';
+const BGM_VOLUMES = { small: 0.06, medium: 0.10, large: 0.16 };
+const BGM_VOLUME_LABELS = { small: '小', medium: '中', large: '大' };
 const BGM_SRC = './assets/audio/redvein_bgm.mp3';
 const ACTION_GUIDE_COLLAPSED_STORAGE_KEY = 'redvein_action_guide_collapsed_v1';
 let sfxEnabled = loadSfxEnabled();
@@ -134,8 +136,10 @@ let sfxAudioContext = null;
 let sfxMasterGainNode = null;
 let sfxToggleButton = null;
 let bgmEnabled = loadBgmEnabled();
+let bgmVolumeLevel = loadBgmVolumeLevel();
 let bgmAudio = null;
 let bgmToggleButton = null;
+let bgmVolumeButtons = new Map();
 let bgmReadyForPlayback = false;
 let lastFinishedSfxMessage = '';
 
@@ -1271,9 +1275,26 @@ function loadBgmEnabled() {
   }
 }
 
+function loadBgmVolumeLevel() {
+  try {
+    const raw = String(localStorage.getItem(BGM_VOLUME_STORAGE_KEY) || 'medium');
+    return Object.prototype.hasOwnProperty.call(BGM_VOLUMES, raw) ? raw : 'medium';
+  } catch (_) {
+    return 'medium';
+  }
+}
+
 function saveBgmEnabled() {
   try {
     localStorage.setItem(BGM_STORAGE_KEY, bgmEnabled ? '1' : '0');
+  } catch (_) {
+    // no-op
+  }
+}
+
+function saveBgmVolumeLevel() {
+  try {
+    localStorage.setItem(BGM_VOLUME_STORAGE_KEY, bgmVolumeLevel);
   } catch (_) {
     // no-op
   }
@@ -1287,12 +1308,16 @@ function shouldPlayBgm() {
   return false;
 }
 
+function getBgmVolumeValue() {
+  return BGM_VOLUMES[bgmVolumeLevel] ?? BGM_VOLUMES.medium;
+}
+
 function getBgmAudio() {
   if (!bgmAudio) {
     const audio = new Audio(BGM_SRC);
     audio.preload = 'auto';
     audio.loop = true;
-    audio.volume = BGM_VOLUME;
+    audio.volume = getBgmVolumeValue();
     bgmAudio = audio;
   }
   return bgmAudio;
@@ -1301,16 +1326,25 @@ function getBgmAudio() {
 function updateBgmToggleButton() {
   if (!bgmToggleButton) return;
   const waiting = bgmEnabled && !bgmReadyForPlayback;
-  bgmToggleButton.textContent = bgmEnabled ? (waiting ? 'BGM ON *' : 'BGM ON') : 'BGM OFF';
+  const volumeLabel = BGM_VOLUME_LABELS[bgmVolumeLevel] || '中';
+  bgmToggleButton.textContent = bgmEnabled ? (waiting ? `BGM ON * (${volumeLabel})` : `BGM ON (${volumeLabel})`) : 'BGM OFF';
   bgmToggleButton.title = waiting ? '最初のクリック後にBGMが再生されます' : '対戦BGMのオンオフ';
   bgmToggleButton.style.opacity = bgmEnabled ? '0.95' : '0.65';
   bgmToggleButton.style.borderColor = bgmEnabled ? 'rgba(255, 214, 130, 0.6)' : 'rgba(255, 255, 255, 0.18)';
+  bgmVolumeButtons.forEach((button, level) => {
+    const isActive = level === bgmVolumeLevel;
+    button.style.opacity = bgmEnabled ? '0.95' : '0.55';
+    button.style.borderColor = isActive ? 'rgba(255, 214, 130, 0.72)' : 'rgba(255, 255, 255, 0.18)';
+    button.style.background = isActive ? 'rgba(124, 31, 54, 0.92)' : 'rgba(23, 10, 18, 0.82)';
+    button.style.color = isActive ? '#fff6de' : '#e8d9c0';
+    button.style.boxShadow = isActive ? '0 0 0 1px rgba(255, 214, 130, 0.22), 0 6px 16px rgba(0, 0, 0, 0.24)' : '0 6px 16px rgba(0, 0, 0, 0.18)';
+  });
 }
 
 function syncBgmPlayback(forcePause = false) {
   const audio = getBgmAudio();
   if (!audio) return;
-  audio.volume = BGM_VOLUME;
+  audio.volume = getBgmVolumeValue();
 
   if (forcePause || !bgmEnabled || !bgmReadyForPlayback || !shouldPlayBgm()) {
     if (!audio.paused) audio.pause();
@@ -1348,17 +1382,40 @@ function setBgmEnabled(nextValue) {
   }
 }
 
+function setBgmVolumeLevel(nextLevel) {
+  if (!Object.prototype.hasOwnProperty.call(BGM_VOLUMES, nextLevel)) return;
+  bgmVolumeLevel = nextLevel;
+  saveBgmVolumeLevel();
+  if (bgmAudio) {
+    bgmAudio.volume = getBgmVolumeValue();
+  }
+  updateBgmToggleButton();
+  syncBgmPlayback();
+}
+
 function createBgmToggleButton() {
-  if (!document.body || document.getElementById('redveinBgmToggle')) return;
+  if (!document.body || document.getElementById('redveinBgmToggleWrap')) return;
+
+  const wrap = document.createElement('div');
+  wrap.id = 'redveinBgmToggleWrap';
+  Object.assign(wrap.style, {
+    position: 'fixed',
+    right: '14px',
+    bottom: '56px',
+    zIndex: '9999',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    maxWidth: 'calc(100vw - 24px)',
+  });
+
   bgmToggleButton = document.createElement('button');
   bgmToggleButton.id = 'redveinBgmToggle';
   bgmToggleButton.type = 'button';
   bgmToggleButton.setAttribute('aria-label', '対戦BGMのオンオフ');
   Object.assign(bgmToggleButton.style, {
-    position: 'fixed',
-    right: '14px',
-    bottom: '56px',
-    zIndex: '9999',
     padding: '8px 12px',
     borderRadius: '999px',
     border: '1px solid rgba(255, 214, 130, 0.45)',
@@ -1375,7 +1432,55 @@ function createBgmToggleButton() {
     markBgmInteractionReady();
     setBgmEnabled(!bgmEnabled);
   });
-  document.body.appendChild(bgmToggleButton);
+  wrap.appendChild(bgmToggleButton);
+
+  const volumeWrap = document.createElement('div');
+  volumeWrap.id = 'redveinBgmVolumeWrap';
+  Object.assign(volumeWrap.style, {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '4px 6px',
+    borderRadius: '999px',
+    border: '1px solid rgba(255, 214, 130, 0.18)',
+    background: 'rgba(14, 7, 12, 0.72)',
+    backdropFilter: 'blur(6px)',
+  });
+
+  [['small', '小'], ['medium', '中'], ['large', '大']].forEach(([level, label]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.setAttribute('aria-label', `BGM音量 ${label}`);
+    Object.assign(button.style, {
+      minWidth: '32px',
+      padding: '6px 10px',
+      borderRadius: '999px',
+      border: '1px solid rgba(255, 255, 255, 0.18)',
+      background: 'rgba(23, 10, 18, 0.82)',
+      color: '#e8d9c0',
+      fontSize: '12px',
+      fontWeight: '700',
+      letterSpacing: '0.04em',
+      cursor: 'pointer',
+      transition: 'transform 0.12s ease, opacity 0.12s ease, border-color 0.12s ease, background 0.12s ease',
+    });
+    button.addEventListener('click', () => {
+      markBgmInteractionReady();
+      setBgmVolumeLevel(level);
+    });
+    button.addEventListener('pointerdown', () => {
+      button.style.transform = 'scale(0.96)';
+    });
+    const resetScale = () => { button.style.transform = 'scale(1)'; };
+    button.addEventListener('pointerup', resetScale);
+    button.addEventListener('pointerleave', resetScale);
+    bgmVolumeButtons.set(level, button);
+    volumeWrap.appendChild(button);
+  });
+
+  wrap.appendChild(volumeWrap);
+  document.body.appendChild(wrap);
   updateBgmToggleButton();
 }
 
