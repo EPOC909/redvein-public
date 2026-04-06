@@ -5806,6 +5806,17 @@ function getPostAttackMoveUnit() {
   return matchState.board[index] || null;
 }
 
+function shouldShowPostAttackMoveUi() {
+  if (!getPostAttackMoveUnitId()) return false;
+  if (!roomSyncState.enabled) return true;
+  return isRoomActiveBattlePlayer();
+}
+
+function getVisiblePostAttackMoveUnit() {
+  if (!shouldShowPostAttackMoveUi()) return null;
+  return getPostAttackMoveUnit();
+}
+
 function clearPostAttackMoveOpportunity() {
   if (!matchState.turnState) return;
   matchState.turnState.postAttackMoveUnitId = null;
@@ -6503,7 +6514,7 @@ function updateSelectionInfo() {
     return;
   }
 
-  const postAttackMoveUnit = getPostAttackMoveUnit();
+  const postAttackMoveUnit = getVisiblePostAttackMoveUnit();
   if (postAttackMoveUnit) {
     const moveCells = getPostAttackMoveCells(postAttackMoveUnit.instanceId);
     setSelectionInfoText(`攻撃後移動: ${postAttackMoveUnit.name} は攻撃後に1マス移動できます。${moveCells.length ? '移動先を1つ選ぶか、手番終了でそのまま終了してください。' : '空きマスがないため移動できません。'}`);
@@ -6741,7 +6752,8 @@ function renderPlayerPanels() {
 function renderBoard() {
   const moveTargets = matchState.actionMode === 'move' && matchState.selectedUnitId ? getReachableMoveCells(matchState.selectedUnitId) : [];
   const attackTargets = matchState.actionMode === 'attack' && matchState.selectedUnitId ? getAttackTargets(matchState.selectedUnitId) : [];
-  const postAttackMoveTargets = getPostAttackMoveUnitId() ? getPostAttackMoveCells(getPostAttackMoveUnitId()) : [];
+  const visiblePostAttackMoveUnit = getVisiblePostAttackMoveUnit();
+  const postAttackMoveTargets = visiblePostAttackMoveUnit ? getPostAttackMoveCells(visiblePostAttackMoveUnit.instanceId) : [];
   const placeableCells = matchState.phase === 'setup' ? getPlaceableCellsForCurrentStep() : [];
   const redeployCells = getRedeployableCells(matchState.currentPlayer);
   const pendingAction = getPendingAction();
@@ -6983,8 +6995,8 @@ function renderMatchMeta() {
       } else {
         setPhaseInfoText(`${activeLabel} の手番です。まずアイテムを1枚選ぶか、「アイテムを使わず次へ」を押してください。`);
       }
-    } else if (getPostAttackMoveUnit()) {
-      const postAttackMoveUnit = getPostAttackMoveUnit();
+    } else if (getVisiblePostAttackMoveUnit()) {
+      const postAttackMoveUnit = getVisiblePostAttackMoveUnit();
       setPhaseInfoText(`${activeLabel} の追加処理です。「${postAttackMoveUnit.name}」は攻撃後に1マス移動できます。盤面の光ったマスを選ぶか、「手番終了」で移動せずに終えてください。`);
     } else {
       const hasAccel = matchState.turnState.acceleratedUnitId && matchState.turnState.acceleratedMovesRemaining > 0;
@@ -7018,7 +7030,7 @@ function renderMatchMeta() {
   const itemSelected = !!selectedItemCard;
   const itemCanConfirm = !!(selectedItemCard && canConfirmSelectedItem(selectedItemCard));
   const pendingAction = getPendingAction();
-  const postAttackMoveActive = !!getPostAttackMoveUnit();
+  const postAttackMoveActive = !!getVisiblePostAttackMoveUnit();
   const roomBattleLocked = isRoomBattleLocked();
   const roomMovePending = roomSyncState.enabled && roomSyncState.pendingMoveRequest;
   const roomAttackPending = roomSyncState.enabled && roomSyncState.pendingAttackRequest;
@@ -7723,6 +7735,7 @@ function confirmPendingBoardAction() {
         unitId: pendingAction.unitId,
         sourceIndex: pendingAction.sourceIndex,
         targetIndex: pendingAction.targetIndex,
+        postAttackMove: true,
       });
       return;
     }
@@ -8142,7 +8155,7 @@ function applyRoomMove(data = {}) {
   const unit = matchState.board[resolvedSourceIndex];
   if (!unit || (actorPlayer && unit.owner !== actorPlayer)) return false;
 
-  const isPostAttackMove = getPostAttackMoveUnitId() === unitId || data.postAttackMove === true;
+  const isPostAttackMove = data.postAttackMove === true || getPostAttackMoveUnitId() === unitId;
   if (isPostAttackMove) {
     applyPendingPostAttackMove({
       type: 'postAttackMove',

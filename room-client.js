@@ -60,7 +60,6 @@
   };
   let reconnectTimer = null;
   let manualReconnectInFlight = false;
-  let socketConnectPromise = null;
 
   let roomActionBox = null;
   let roomActionStatus = null;
@@ -559,10 +558,6 @@ ${roomLog.textContent}` : line;
     }
   }
 
-  function wait(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
   async function tryReconnectSilently() {
     const saved = readSession();
     if (!saved || !saved.roomId || !saved.reconnectToken) return;
@@ -593,121 +588,45 @@ ${roomLog.textContent}` : line;
   }
 
   function ensureSocket() {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      return Promise.resolve(socket);
-    }
-    if (socketConnectPromise) {
-      return socketConnectPromise;
-    }
+    return new Promise((resolve, reject) => {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        resolve(socket);
+        return;
+      }
 
-    const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
-    const socketUrl = `${protocol}${location.host}`;
-    const MAX_CONNECT_ATTEMPTS = 2;
-    const CONNECT_TIMEOUT_MS = 7000;
+      const protocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
+      socket = new WebSocket(`${protocol}${location.host}`);
+      updateSocketState('接続中...', false);
 
-    const connectPromise = new Promise((resolve, reject) => {
-      const attemptConnect = async (attempt) => {
-        const isRetry = attempt > 1;
-        let opened = false;
-        let finished = false;
-        let erroredBeforeOpen = false;
-
-        socket = new WebSocket(socketUrl);
-        updateSocketState(isRetry ? `再接続中... (${attempt}/${MAX_CONNECT_ATTEMPTS})` : '接続中...', false);
+      socket.addEventListener('open', () => {
+        clearReconnectTimer();
+        updateSocketState('接続済み', true);
         updateStartUi();
-        writeLog(isRetry ? `接続を再試行しています。(${attempt}/${MAX_CONNECT_ATTEMPTS})` : 'サーバーへ接続しています...');
+        resolve(socket);
+      }, { once: true });
 
-        const timeoutId = setTimeout(async () => {
-          if (finished || opened) return;
-          finished = true;
-          try {
-            socket?.close();
-          } catch (_) {
-            // noop
-          }
-          if (attempt < MAX_CONNECT_ATTEMPTS) {
-            writeLog('接続が遅いため、もう一度だけ自動で接続を試します。');
-            await wait(800);
-            attemptConnect(attempt + 1);
-            return;
-          }
-          if (socket && socket.readyState !== WebSocket.OPEN) {
-            socket = null;
-          }
-          updateSocketState('接続失敗', false);
-          updateStartUi();
-          reject(new Error('WebSocket connection timed out'));
-        }, CONNECT_TIMEOUT_MS);
+      socket.addEventListener('error', (error) => {
+        updateSocketState('接続失敗', false);
+        updateStartUi();
+        reject(error);
+      }, { once: true });
 
-        const failOrRetry = async (reason, error) => {
-          if (finished) return;
-          finished = true;
-          clearTimeout(timeoutId);
-          if (socket && socket.readyState !== WebSocket.OPEN) {
-            socket = null;
-          }
-          if (attempt < MAX_CONNECT_ATTEMPTS) {
-            writeLog('接続に失敗したため、もう一度だけ自動で接続を試します。');
-            updateSocketState(`再接続中... (${attempt + 1}/${MAX_CONNECT_ATTEMPTS})`, false);
-            updateStartUi();
-            await wait(800);
-            attemptConnect(attempt + 1);
-            return;
-          }
-          updateSocketState('接続失敗', false);
-          updateStartUi();
-          reject(error || new Error(reason || 'socket connect failed'));
-        };
+      socket.addEventListener('close', () => {
+        socket = null;
+        updateSocketState('切断', false);
+        updateStartUi();
+        scheduleReconnectAttempt();
+      });
 
-        socket.addEventListener('open', () => {
-          if (finished) return;
-          finished = true;
-          opened = true;
-          clearTimeout(timeoutId);
-          clearReconnectTimer();
-          updateSocketState('接続済み', true);
-          updateStartUi();
-          writeLog('サーバーに接続しました。');
-          resolve(socket);
-        }, { once: true });
-
-        socket.addEventListener('error', (error) => {
-          erroredBeforeOpen = true;
+      socket.addEventListener('message', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleServerMessage(data);
+        } catch (error) {
           console.error(error);
-        }, { once: true });
-
-        socket.addEventListener('close', () => {
-          clearTimeout(timeoutId);
-          if (opened) {
-            if (socket && socket.readyState !== WebSocket.OPEN) {
-              socket = null;
-            }
-            updateSocketState('切断', false);
-            updateStartUi();
-            scheduleReconnectAttempt();
-            return;
-          }
-          failOrRetry(erroredBeforeOpen ? 'socket error before open' : 'socket closed before open');
-        }, { once: true });
-
-        socket.addEventListener('message', (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            handleServerMessage(data);
-          } catch (error) {
-            console.error(error);
-          }
-        });
-      };
-
-      attemptConnect(1);
+        }
+      });
     });
-
-    socketConnectPromise = connectPromise.finally(() => {
-      socketConnectPromise = null;
-    });
-
-    return socketConnectPromise;
   }
 
   function sendMessage(payload) {
@@ -813,7 +732,7 @@ ${roomLog.textContent}` : line;
           targetIndex,
         });
       },
-      onMoveRequest: ({ player, unitId, sourceIndex, targetIndex }) => {
+      onMoveRequest: ({ player, unitId, sourceIndex, targetIndex, postAttackMove = false }) => {
         sendMessage({
           type: 'move_unit',
           roomId: currentRoomId,
@@ -821,6 +740,7 @@ ${roomLog.textContent}` : line;
           unitId,
           sourceIndex,
           targetIndex,
+          postAttackMove,
         });
       },
       onAttackRequest: ({ player, unitId, sourceIndex, targetIndex }) => {
