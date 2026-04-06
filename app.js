@@ -6741,8 +6741,7 @@ function renderPlayerPanels() {
 function renderBoard() {
   const moveTargets = matchState.actionMode === 'move' && matchState.selectedUnitId ? getReachableMoveCells(matchState.selectedUnitId) : [];
   const attackTargets = matchState.actionMode === 'attack' && matchState.selectedUnitId ? getAttackTargets(matchState.selectedUnitId) : [];
-  const canShowPostAttackTargets = !roomSyncState.enabled || isRoomActiveBattlePlayer();
-  const postAttackMoveTargets = canShowPostAttackTargets && getPostAttackMoveUnitId() ? getPostAttackMoveCells(getPostAttackMoveUnitId()) : [];
+  const postAttackMoveTargets = getPostAttackMoveUnitId() ? getPostAttackMoveCells(getPostAttackMoveUnitId()) : [];
   const placeableCells = matchState.phase === 'setup' ? getPlaceableCellsForCurrentStep() : [];
   const redeployCells = getRedeployableCells(matchState.currentPlayer);
   const pendingAction = getPendingAction();
@@ -7330,7 +7329,7 @@ function moveAfterAttackWithSelectedUnit(targetIndex) {
   const validTargets = getPostAttackMoveCells(unitId);
   if (!validTargets.includes(targetIndex)) return;
 
-  setPendingAction({
+  const pending = {
     type: 'postAttackMove',
     unitId: unit.instanceId,
     unitName: unit.name,
@@ -7338,7 +7337,23 @@ function moveAfterAttackWithSelectedUnit(targetIndex) {
     targetIndex,
     fromLabel: formatCellLabel(sourceIndex),
     toLabel: formatCellLabel(targetIndex),
-  });
+  };
+
+  if (roomSyncState.enabled && isRoomActiveBattlePlayer() && typeof roomSyncState.onMoveRequest === 'function') {
+    setPendingAction(pending);
+    roomSyncState.pendingMoveRequest = true;
+    renderMatchArea();
+    roomSyncState.onMoveRequest({
+      player: matchState.currentPlayer,
+      unitId: pending.unitId,
+      sourceIndex: pending.sourceIndex,
+      targetIndex: pending.targetIndex,
+      isPostAttackMove: true,
+    });
+    return;
+  }
+
+  setPendingAction(pending);
   renderMatchArea();
 }
 
@@ -7700,7 +7715,7 @@ function confirmPendingBoardAction() {
   const pendingAction = getPendingAction();
   if (!pendingAction || matchState.phase !== 'battle') return;
 
-  if (pendingAction.type === 'move' || pendingAction.type === 'postAttackMove') {
+  if (pendingAction.type === 'move') {
     if (roomSyncState.enabled && isRoomActiveBattlePlayer() && typeof roomSyncState.onMoveRequest === 'function') {
       roomSyncState.pendingMoveRequest = true;
       renderMatchArea();
@@ -7712,11 +7727,23 @@ function confirmPendingBoardAction() {
       });
       return;
     }
-    if (pendingAction.type === 'postAttackMove') {
-      applyPendingPostAttackMove(pendingAction);
+    applyPendingMove(pendingAction);
+    return;
+  }
+  if (pendingAction.type === 'postAttackMove') {
+    if (roomSyncState.enabled && isRoomActiveBattlePlayer() && typeof roomSyncState.onMoveRequest === 'function') {
+      roomSyncState.pendingMoveRequest = true;
+      renderMatchArea();
+      roomSyncState.onMoveRequest({
+        player: matchState.currentPlayer,
+        unitId: pendingAction.unitId,
+        sourceIndex: pendingAction.sourceIndex,
+        targetIndex: pendingAction.targetIndex,
+        isPostAttackMove: true,
+      });
       return;
     }
-    applyPendingMove(pendingAction);
+    applyPendingPostAttackMove(pendingAction);
     return;
   }
   if (pendingAction.type === 'attack') {
@@ -8113,19 +8140,18 @@ function applyRoomMove(data = {}) {
   if (!unitId || Number.isNaN(sourceIndex) || Number.isNaN(targetIndex)) return false;
 
   const pendingAction = getPendingAction();
-  const isPostAttackMove = !!(matchState.turnState?.postAttackMoveUnitId && matchState.turnState.postAttackMoveUnitId === unitId);
+  const postAttackMoveActive = getPostAttackMoveUnitId() === unitId;
   clearRoomPendingRequests();
   if (data.currentPlayer) matchState.currentPlayer = data.currentPlayer;
 
-  if (pendingAction && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
-    if (pendingAction.type === 'postAttackMove' || isPostAttackMove) {
-      applyPendingPostAttackMove(pendingAction);
-      return true;
-    }
-    if (pendingAction.type === 'move') {
-      applyPendingMove(pendingAction);
-      return true;
-    }
+  if (pendingAction && pendingAction.type === 'postAttackMove' && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
+    applyPendingPostAttackMove(pendingAction);
+    return true;
+  }
+
+  if (pendingAction && pendingAction.type === 'move' && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
+    applyPendingMove(pendingAction);
+    return true;
   }
 
   const actorPlayer = String(data.player || '');
@@ -8134,20 +8160,24 @@ function applyRoomMove(data = {}) {
   const unit = matchState.board[resolvedSourceIndex];
   if (!unit || (actorPlayer && unit.owner !== actorPlayer)) return false;
 
-  const actionPayload = {
-    type: isPostAttackMove ? 'postAttackMove' : 'move',
+  if (postAttackMoveActive) {
+    applyPendingPostAttackMove({
+      type: 'postAttackMove',
+      unitId,
+      targetIndex,
+      fromLabel: formatCellLabel(resolvedSourceIndex),
+      toLabel: formatCellLabel(targetIndex),
+    });
+    return true;
+  }
+
+  applyPendingMove({
+    type: 'move',
     unitId,
     targetIndex,
     fromLabel: formatCellLabel(resolvedSourceIndex),
     toLabel: formatCellLabel(targetIndex),
-  };
-
-  if (isPostAttackMove) {
-    applyPendingPostAttackMove(actionPayload);
-    return true;
-  }
-
-  applyPendingMove(actionPayload);
+  });
   return true;
 }
 
