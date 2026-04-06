@@ -4166,7 +4166,7 @@ function createEmptyMatchState() {
     selectedReserveCardId: null,
     selectedUnitId: null,
     actionMode: null,
-    turnState: { moved: false, movedUnitId: null, attacked: false, attackCount: 0, attackUnitId: null, itemWindowOpen: true, itemUsed: false, selectedItemCardId: null, selectedItemTargetIndex: null, pendingAction: null, acceleratedUnitId: null, acceleratedMovesRemaining: 0, postAttackMoveUnitId: null, pendingRedeployCardId: null, pendingRedeployOwner: null },
+    turnState: { moved: false, movedUnitId: null, attacked: false, attackCount: 0, attackUnitId: null, itemWindowOpen: true, itemUsed: false, selectedItemCardId: null, selectedItemTargetIndex: null, pendingAction: null, acceleratedUnitId: null, acceleratedMovesRemaining: 0, royalCommandUnitId: null, postAttackMoveUnitId: null, pendingRedeployCardId: null, pendingRedeployOwner: null },
     board: Array(25).fill(null),
     pendingRevives: [],
     pendingRedeploys: [],
@@ -5389,6 +5389,7 @@ function createUnitInstance(cardId, owner, forcedInstanceId = '') {
     guardBlockUsed: false,
     negateDamageUsed: false,
     surviveOnceUsed: false,
+    royalCommandAttackReady: false,
   };
 }
 
@@ -5698,9 +5699,15 @@ function getFieldAttackBonus(playerKey, boardIndex) {
   return bonus;
 }
 
+function getRoyalCommandAttackBonus(unit) {
+  if (!unit || !unit.royalCommandAttackReady) return 0;
+  if (matchState.turnState?.royalCommandUnitId && matchState.turnState.royalCommandUnitId !== unit.instanceId) return 0;
+  return 1;
+}
+
 function getEffectiveAtk(unit, boardIndex) {
   if (!unit) return 0;
-  return Math.max(0, Number(unit.atk || 0) + Number(unit.tempAtkBuff || 0) + getFieldAttackBonus(unit.owner, boardIndex) + getConditionalAttackBonus(unit, boardIndex));
+  return Math.max(0, Number(unit.atk || 0) + Number(unit.tempAtkBuff || 0) + getRoyalCommandAttackBonus(unit) + getFieldAttackBonus(unit.owner, boardIndex) + getConditionalAttackBonus(unit, boardIndex));
 }
 
 function getEffectiveMove(unit, boardIndex = null) {
@@ -5723,6 +5730,7 @@ function clearTemporaryEffects(playerKey) {
     if (!unit || unit.owner !== playerKey) continue;
     unit.tempAtkBuff = 0;
     unit.tempMoveBuff = 0;
+    unit.royalCommandAttackReady = false;
   }
 }
 
@@ -6166,9 +6174,11 @@ function applyItemEffect(card, playerKey) {
       if (!targetUnit || targetUnit.owner !== playerKey) return false;
       matchState.turnState.acceleratedUnitId = targetUnit.instanceId;
       matchState.turnState.acceleratedMovesRemaining = Math.max(Number(matchState.turnState.acceleratedMovesRemaining || 0), 1);
+      matchState.turnState.royalCommandUnitId = targetUnit.instanceId;
+      targetUnit.royalCommandAttackReady = false;
       matchState.selectedUnitId = targetUnit.instanceId;
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
-      addLog(`${actorLabel}: ${card.card_name} により ${targetUnit.name} はこの手番、追加で1回移動できます`);
+      addLog(`${actorLabel}: ${card.card_name} により ${targetUnit.name} はこの手番、追加で1回移動でき、移動後の最初の攻撃が +1 されます`);
       return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount: 1, impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'ORDER' }] : [] });
     }
     case 'team_damage_minus_1_until_next_round': {
@@ -6502,7 +6512,7 @@ function updateSelectionInfo() {
     const extraAttackText = matchState.turnState?.attackUnitId === selectedUnit.instanceId && unitHasEffectType(selectedUnit, 'double_attack') && Number(matchState.turnState.attackCount || 0) > 0 && Number(matchState.turnState.attackCount || 0) < getAttackLimitForUnit(selectedUnit)
       ? ` / 神速剣士: 残り${getAttackLimitForUnit(selectedUnit) - Number(matchState.turnState.attackCount || 0)}回攻撃可`
       : '';
-    setSelectionInfoText(`${selectedUnit.name} を選択中 / HP ${selectedUnit.currentHp}/${selectedUnit.maxHp} / ATK ${getEffectiveAtk(selectedUnit, idx)} / MOVE ${getEffectiveMove(selectedUnit, idx)}${selectedUnit.actionLocked ? ' / この手番は行動不可' : (selectedUnit.attackLocked ? ' / この手番は攻撃不可' : '')}${cannotMoveByEffect(selectedUnit) ? ' / このユニットは移動不可' : ''}${currentPlayerCannotAttackAfterMove() ? ' / 暴風域: 移動後は攻撃不可' : ''}${matchState.turnState?.acceleratedUnitId === selectedUnit.instanceId && matchState.turnState.acceleratedMovesRemaining > 0 ? ` / 加速術: 残り${matchState.turnState.acceleratedMovesRemaining}回移動可` : ''}${extraAttackText}`);
+    setSelectionInfoText(`${selectedUnit.name} を選択中 / HP ${selectedUnit.currentHp}/${selectedUnit.maxHp} / ATK ${getEffectiveAtk(selectedUnit, idx)} / MOVE ${getEffectiveMove(selectedUnit, idx)}${selectedUnit.actionLocked ? ' / この手番は行動不可' : (selectedUnit.attackLocked ? ' / この手番は攻撃不可' : '')}${cannotMoveByEffect(selectedUnit) ? ' / このユニットは移動不可' : ''}${currentPlayerCannotAttackAfterMove() ? ' / 暴風域: 移動後は攻撃不可' : ''}${matchState.turnState?.acceleratedUnitId === selectedUnit.instanceId && matchState.turnState.acceleratedMovesRemaining > 0 ? ` / 加速術: 残り${matchState.turnState.acceleratedMovesRemaining}回移動可` : ''}${selectedUnit.royalCommandAttackReady ? ' / 王命: 次の攻撃+1' : ''}${extraAttackText}`);
     return;
   }
 
@@ -7096,7 +7106,7 @@ function beginTurn(playerKey) {
   matchState.currentPlayer = playerKey;
   clearRoomPendingRequests();
   clearExpiredStartOfTurnEffects(playerKey);
-  matchState.turnState = { moved: false, movedUnitId: null, attacked: false, attackCount: 0, attackUnitId: null, itemWindowOpen: true, itemUsed: false, selectedItemCardId: null, selectedItemTargetIndex: null, pendingAction: null, acceleratedUnitId: null, acceleratedMovesRemaining: 0, postAttackMoveUnitId: null, pendingRedeployCardId: null, pendingRedeployOwner: null };
+  matchState.turnState = { moved: false, movedUnitId: null, attacked: false, attackCount: 0, attackUnitId: null, itemWindowOpen: true, itemUsed: false, selectedItemCardId: null, selectedItemTargetIndex: null, pendingAction: null, acceleratedUnitId: null, acceleratedMovesRemaining: 0, royalCommandUnitId: null, postAttackMoveUnitId: null, pendingRedeployCardId: null, pendingRedeployOwner: null };
   revivePendingUnitsForPlayer(playerKey);
   refreshTurnStatusForPlayer(playerKey);
   preparePendingRedeployForPlayer(playerKey);
@@ -7281,14 +7291,18 @@ function applyPendingMove(pendingAction) {
   matchState.turnState.movedUnitId = unit.instanceId;
   if (acceleratedThisTurn) {
     matchState.turnState.acceleratedMovesRemaining -= 1;
+    if (matchState.turnState.royalCommandUnitId === unit.instanceId) {
+      unit.royalCommandAttackReady = true;
+      addLog(`${unit.name} は王冠の勅命により、移動後の最初の攻撃が +1 されます`);
+    }
     if (matchState.turnState.acceleratedMovesRemaining <= 0) {
       matchState.turnState.acceleratedMovesRemaining = 0;
       matchState.turnState.acceleratedUnitId = null;
       matchState.turnState.moved = true;
-      addLog(`${unit.name} の加速術による追加移動を使い切りました`);
+      addLog(`${unit.name} の加速効果による追加移動を使い切りました`);
     } else {
       matchState.turnState.moved = false;
-      addLog(`${unit.name} は加速術により、あと ${matchState.turnState.acceleratedMovesRemaining} 回移動できます`);
+      addLog(`${unit.name} は加速効果により、あと ${matchState.turnState.acceleratedMovesRemaining} 回移動できます`);
     }
   } else {
     matchState.turnState.moved = true;
@@ -7578,6 +7592,13 @@ function applyPendingAttack(pendingAction) {
   matchState.turnState.attackUnitId = pendingAction.unitId;
   matchState.turnState.attackCount = Number(matchState.turnState.attackCount || 0) + 1;
   matchState.turnState.attacked = true;
+  if (attacker && attacker.royalCommandAttackReady) {
+    attacker.royalCommandAttackReady = false;
+    if (matchState.turnState.royalCommandUnitId === pendingAction.unitId) {
+      matchState.turnState.royalCommandUnitId = null;
+    }
+    addLog(`${attacker.name} の王冠の勅命による攻撃力上昇が消費されました`);
+  }
   matchState.actionMode = null;
   clearPendingAction();
 
@@ -7958,44 +7979,9 @@ function renderFieldLog(playerKey) {
   addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」の処理を記録しました`);
 }
 
-async function loadCardsFromStaticJson() {
-  const fallbackPaths = ['./data/redvein_cards.json', './redvein_cards.json'];
-  let lastError = null;
-
-  for (const path of fallbackPaths) {
-    try {
-      const response = await fetch(path, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`静的カードJSONの取得に失敗しました: ${response.status}`);
-      const data = await response.json();
-      if (!Array.isArray(data)) throw new Error('静的カードJSONの形式が不正です。');
-      return data;
-    } catch (error) {
-      lastError = error;
-      console.error(error);
-    }
-  }
-
-  throw lastError || new Error('静的カードJSONの読み込みに失敗しました。');
-}
-
-function applyLoadedCards(data) {
-  allCards = Array.isArray(data) ? data : [];
-  cardMap = new Map(allCards.map((card) => [card.card_id, card]));
-  applyRoomImportedCardsToCardMap();
-  ownedCardIds = loadOwnedCards();
-  ensureUnlockedCardsOwned();
-  savedDecks = loadSavedDecks();
-  renderSavedDeckOptions();
-  renderDeckPanel();
-  renderCards();
-  renderMatchArea();
-  renderUnlockPanel();
-}
-
 async function loadCards() {
-  clearError();
-
   try {
+    clearError();
     const response = await fetch(CARDS_API_PATH, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -8008,18 +7994,19 @@ async function loadCards() {
     const data = Array.isArray(payload?.cards) ? payload.cards : [];
     if (!Array.isArray(data)) throw new Error('カード一覧の形式が不正です。');
 
-    applyLoadedCards(data);
-    return;
+    allCards = data;
+    cardMap = new Map(allCards.map((card) => [card.card_id, card]));
+    applyRoomImportedCardsToCardMap();
+    ownedCardIds = loadOwnedCards();
+    ensureUnlockedCardsOwned();
+    savedDecks = loadSavedDecks();
+    renderSavedDeckOptions();
+    renderDeckPanel();
+    renderCards();
+    renderMatchArea();
+    renderUnlockPanel();
   } catch (error) {
     console.error(error);
-  }
-
-  try {
-    const fallbackData = await loadCardsFromStaticJson();
-    applyLoadedCards(fallbackData);
-    showError('カードAPIの読み込みに失敗したため、通常カードのみのフォールバック表示に切り替えました。特別カードの反映はサーバー更新後に再読み込みしてください。');
-  } catch (fallbackError) {
-    console.error(fallbackError);
     showError('カード一覧または解放カードの読み込みで問題がありました。サーバー更新後に再読み込みしてください。');
   }
 }
@@ -8251,6 +8238,7 @@ function exportRoomSyncSnapshot() {
       singleUseDamageReduction: unit.singleUseDamageReduction,
       guardBlockUsed: unit.guardBlockUsed,
       negateDamageUsed: unit.negateDamageUsed,
+      royalCommandAttackReady: !!unit.royalCommandAttackReady,
     } : null),
     turnState: {
       moved: !!matchState.turnState?.moved,
@@ -8262,6 +8250,7 @@ function exportRoomSyncSnapshot() {
       itemUsed: !!matchState.turnState?.itemUsed,
       acceleratedUnitId: matchState.turnState?.acceleratedUnitId || null,
       acceleratedMovesRemaining: Number(matchState.turnState?.acceleratedMovesRemaining || 0),
+      royalCommandUnitId: matchState.turnState?.royalCommandUnitId || null,
       postAttackMoveUnitId: matchState.turnState?.postAttackMoveUnitId || null,
       pendingRedeployOwner: matchState.turnState?.pendingRedeployOwner || null,
     },
