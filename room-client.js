@@ -127,8 +127,6 @@ ${roomLog.textContent}` : line;
   function installLobbyEnhancements() {
     if (!roomSection || !roomSectionHeader || roomHero) return;
 
-    roomSection.querySelectorAll(':scope > .room-hero').forEach((node) => node.remove());
-
     roomHero = document.createElement('section');
     roomHero.className = 'room-hero card-subpanel';
     roomHero.innerHTML = `
@@ -299,11 +297,11 @@ ${roomLog.textContent}` : line;
     roomActionBox.innerHTML = `
       <h3>試合操作</h3>
       <div class="room-action-buttons">
-        <button type="button" class="button primary" data-room-action="rematch">再戦を申請</button>
-        <button type="button" class="button secondary" data-room-action="reset">リセットを申請</button>
+        <button type="button" class="button primary" data-room-action="rematch">再戦を申請（相手の承認が必要）</button>
+        <button type="button" class="button secondary" data-room-action="reset">リセットを申請（相手の承認が必要）</button>
         <button type="button" class="button secondary danger" data-room-action="close">ルーム終了</button>
       </div>
-      <div class="room-action-status" id="roomActionStatus">同じルームで再戦・リセット・ルーム終了ができます。</div>
+      <div class="room-action-status" id="roomActionStatus">再戦とリセットは P1 / P2 の両方が申請した時だけ実行されます。</div>
     `;
     anchor.appendChild(roomActionBox);
 
@@ -342,8 +340,8 @@ ${roomLog.textContent}` : line;
     roomResetButton.disabled = !canReset;
     roomCloseButton.disabled = !canClose;
 
-    roomRematchButton.textContent = myRematch ? '再戦申請を取り消す' : '再戦を申請';
-    roomResetButton.textContent = myReset ? 'リセット申請を取り消す' : 'リセットを申請';
+    roomRematchButton.textContent = myRematch ? '再戦申請を取り消す' : '再戦を申請（相手の承認が必要）';
+    roomResetButton.textContent = myReset ? 'リセット申請を取り消す' : 'リセットを申請（相手の承認が必要）';
 
     roomActionBox.classList.toggle('match-finished', currentRoomState === 'finished');
     roomActionBox.classList.toggle('match-playing', currentRoomState === 'playing');
@@ -354,22 +352,22 @@ ${roomLog.textContent}` : line;
       return;
     }
     if (currentRole === 'spectator') {
-      roomActionStatus.textContent = '観戦者は試合操作できません。再戦とリセットは P1 / P2 の両者承認制です。';
+      roomActionStatus.textContent = '観戦者は試合操作できません。再戦とリセットは、P1 と P2 の両方が申請した時だけ実行されます。';
       return;
     }
     if (currentRoomState === 'finished') {
-      roomActionStatus.textContent = `再戦: ${summarizeApproval(currentControlRequests.rematch)} / リセット: ${summarizeApproval(currentControlRequests.reset)}。ルーム終了は P1 のみ実行できます。`;
+      roomActionStatus.textContent = `試合終了後です。再戦は P1 と P2 の両方が「再戦を申請」を押すと始まります。現在の承認状況 → 再戦: ${summarizeApproval(currentControlRequests.rematch)} / リセット: ${summarizeApproval(currentControlRequests.reset)}。ルーム終了は P1 のみ実行できます。`;
       return;
     }
     if (currentRoomState === 'playing') {
-      roomActionStatus.textContent = `リセット: ${summarizeApproval(currentControlRequests.reset)}。試合終了後は再戦も使えます。ルーム終了は P1 のみです。`;
+      roomActionStatus.textContent = `対戦中です。盤面を最初からやり直すには、P1 と P2 の両方が「リセットを申請」を押してください。現在の承認状況 → リセット: ${summarizeApproval(currentControlRequests.reset)}。再戦は試合終了後に使えます。ルーム終了は P1 のみです。`;
       return;
     }
     if (currentRoomState === 'ready') {
-      roomActionStatus.textContent = '試合開始前です。ルーム終了は P1 のみです。';
+      roomActionStatus.textContent = '試合開始前です。リセットは P1 と P2 の両方が申請した時だけ実行されます。ルーム終了は P1 のみです。';
       return;
     }
-    roomActionStatus.textContent = '同じルームで再戦・リセット・ルーム終了ができます。';
+    roomActionStatus.textContent = '再戦とリセットは、P1 と P2 の両方が申請した時だけ実行されます。ルーム終了は P1 のみです。';
   }
 
   async function sendRoomActionRequest(action, requested = true) {
@@ -398,6 +396,7 @@ ${roomLog.textContent}` : line;
       return;
     }
     const requested = !currentControlRequests.rematch?.[myRole];
+    writeLog(requested ? '再戦を申請しました。相手も承認すると同じルームで再戦が始まります。' : '再戦申請を取り消しました。');
     sendRoomActionRequest('rematch', requested);
   }
 
@@ -408,6 +407,7 @@ ${roomLog.textContent}` : line;
       return;
     }
     const requested = !currentControlRequests.reset?.[myRole];
+    writeLog(requested ? 'リセットを申請しました。相手も承認すると盤面が最初からやり直しになります。' : 'リセット申請を取り消しました。');
     sendRoomActionRequest('reset', requested);
   }
 
