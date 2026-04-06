@@ -127,6 +127,8 @@ ${roomLog.textContent}` : line;
   function installLobbyEnhancements() {
     if (!roomSection || !roomSectionHeader || roomHero) return;
 
+    roomSection.querySelectorAll(':scope > .room-hero').forEach((node) => node.remove());
+
     roomHero = document.createElement('section');
     roomHero.className = 'room-hero card-subpanel';
     roomHero.innerHTML = `
