@@ -5795,7 +5795,10 @@ function getOrthogonalNeighbors(centerIndex) {
 }
 
 function getPostAttackMoveUnitId() {
-  return matchState.turnState?.postAttackMoveUnitId || null;
+  const unitId = matchState.turnState?.postAttackMoveUnitId || null;
+  if (!unitId) return null;
+  if (roomSyncState.enabled && !isRoomActiveBattlePlayer()) return null;
+  return unitId;
 }
 
 function getPostAttackMoveUnit() {
@@ -7329,7 +7332,7 @@ function moveAfterAttackWithSelectedUnit(targetIndex) {
   const validTargets = getPostAttackMoveCells(unitId);
   if (!validTargets.includes(targetIndex)) return;
 
-  const pending = {
+  setPendingAction({
     type: 'postAttackMove',
     unitId: unit.instanceId,
     unitName: unit.name,
@@ -7337,23 +7340,7 @@ function moveAfterAttackWithSelectedUnit(targetIndex) {
     targetIndex,
     fromLabel: formatCellLabel(sourceIndex),
     toLabel: formatCellLabel(targetIndex),
-  };
-
-  if (roomSyncState.enabled && isRoomActiveBattlePlayer() && typeof roomSyncState.onMoveRequest === 'function') {
-    setPendingAction(pending);
-    roomSyncState.pendingMoveRequest = true;
-    renderMatchArea();
-    roomSyncState.onMoveRequest({
-      player: matchState.currentPlayer,
-      unitId: pending.unitId,
-      sourceIndex: pending.sourceIndex,
-      targetIndex: pending.targetIndex,
-      isPostAttackMove: true,
-    });
-    return;
-  }
-
-  setPendingAction(pending);
+  });
   renderMatchArea();
 }
 
@@ -7363,7 +7350,6 @@ function applyPendingPostAttackMove(pendingAction) {
     clearPostAttackMoveOpportunity();
     clearPendingAction();
     renderMatchArea();
-    endTurn();
     return;
   }
   const unit = matchState.board[sourceIndex];
@@ -7371,7 +7357,6 @@ function applyPendingPostAttackMove(pendingAction) {
     clearPostAttackMoveOpportunity();
     clearPendingAction();
     renderMatchArea();
-    endTurn();
     return;
   }
 
@@ -7393,7 +7378,6 @@ function applyPendingPostAttackMove(pendingAction) {
   if (postMoveSignature) {
     scheduleCardSignatureFx(pendingAction.targetIndex, postMoveSignature, 40);
   }
-  endTurn();
 }
 
 function attackWithSelectedUnit(targetIndex) {
@@ -7739,7 +7723,6 @@ function confirmPendingBoardAction() {
         unitId: pendingAction.unitId,
         sourceIndex: pendingAction.sourceIndex,
         targetIndex: pendingAction.targetIndex,
-        isPostAttackMove: true,
       });
       return;
     }
@@ -8140,18 +8123,20 @@ function applyRoomMove(data = {}) {
   if (!unitId || Number.isNaN(sourceIndex) || Number.isNaN(targetIndex)) return false;
 
   const pendingAction = getPendingAction();
-  const postAttackMoveActive = getPostAttackMoveUnitId() === unitId;
   clearRoomPendingRequests();
   if (data.currentPlayer) matchState.currentPlayer = data.currentPlayer;
 
-  if (pendingAction && pendingAction.type === 'postAttackMove' && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
-    applyPendingPostAttackMove(pendingAction);
-    return true;
-  }
+  const isPostAttackMove = !!(matchState.turnState?.postAttackMoveUnitId && matchState.turnState.postAttackMoveUnitId === unitId);
 
-  if (pendingAction && pendingAction.type === 'move' && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
-    applyPendingMove(pendingAction);
-    return true;
+  if (pendingAction && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
+    if (pendingAction.type === 'postAttackMove' || isPostAttackMove) {
+      applyPendingPostAttackMove(pendingAction);
+      return true;
+    }
+    if (pendingAction.type === 'move') {
+      applyPendingMove(pendingAction);
+      return true;
+    }
   }
 
   const actorPlayer = String(data.player || '');
@@ -8160,24 +8145,22 @@ function applyRoomMove(data = {}) {
   const unit = matchState.board[resolvedSourceIndex];
   if (!unit || (actorPlayer && unit.owner !== actorPlayer)) return false;
 
-  if (postAttackMoveActive) {
-    applyPendingPostAttackMove({
-      type: 'postAttackMove',
-      unitId,
-      targetIndex,
-      fromLabel: formatCellLabel(resolvedSourceIndex),
-      toLabel: formatCellLabel(targetIndex),
-    });
-    return true;
-  }
-
-  applyPendingMove({
-    type: 'move',
+  const payload = {
+    type: isPostAttackMove ? 'postAttackMove' : 'move',
     unitId,
+    unitName: unit.name,
+    sourceIndex: resolvedSourceIndex,
     targetIndex,
     fromLabel: formatCellLabel(resolvedSourceIndex),
     toLabel: formatCellLabel(targetIndex),
-  });
+  };
+
+  if (isPostAttackMove) {
+    applyPendingPostAttackMove(payload);
+    return true;
+  }
+
+  applyPendingMove(payload);
   return true;
 }
 
