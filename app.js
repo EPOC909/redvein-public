@@ -912,7 +912,7 @@ function buildGuideState() {
   const pendingAction = getPendingAction();
   const selectedItem = getSelectedItemCard();
   const targetUnit = getSelectedItemTargetUnit();
-  const postAttackMoveUnit = canHandlePostAttackMoveLocally() ? getPostAttackMoveUnit() : null;
+  const postAttackMoveUnit = getPostAttackMoveUnit();
   const selectedUnit = getSelectedUnit();
   const activeItems = activePlayerKey === 'player1' ? player1Items : player2Items;
 
@@ -2461,7 +2461,7 @@ function getSpectatorHudState() {
         sub = `${pendingAction.unitName} → ${pendingAction.targetName} / 最新ログ: ${latestLog}`;
         chips.push('攻撃確認');
       }
-    } else if (canHandlePostAttackMoveLocally() && getPostAttackMoveUnit()) {
+    } else if (getPostAttackMoveUnit()) {
       const unit = getPostAttackMoveUnit();
       main = `${currentLabel} が攻撃後移動を選択中です`;
       sub = `${unit?.name || 'ユニット'} の追加移動先を選んでいます。`;
@@ -5806,12 +5806,6 @@ function getPostAttackMoveUnit() {
   return matchState.board[index] || null;
 }
 
-function canHandlePostAttackMoveLocally() {
-  if (!getPostAttackMoveUnitId()) return false;
-  if (!roomSyncState.enabled) return true;
-  return isRoomActiveBattlePlayer();
-}
-
 function clearPostAttackMoveOpportunity() {
   if (!matchState.turnState) return;
   matchState.turnState.postAttackMoveUnitId = null;
@@ -6249,6 +6243,11 @@ function getReachableMoveCells(instanceId) {
   const unit = matchState.board[startIndex];
   if (!unit || unit.owner !== matchState.currentPlayer || unit.actionLocked) return [];
 
+  if (matchState.turnState?.postAttackMoveUnitId) {
+    if (matchState.turnState.postAttackMoveUnitId !== unit.instanceId) return [];
+    return getOrthogonalNeighbors(startIndex).filter((idx) => !matchState.board[idx]);
+  }
+
   const hasAcceleratedMoves = !!(matchState.turnState?.acceleratedUnitId && matchState.turnState.acceleratedMovesRemaining > 0);
   if (hasAcceleratedMoves) {
     if (unit.instanceId !== matchState.turnState.acceleratedUnitId) return [];
@@ -6509,7 +6508,7 @@ function updateSelectionInfo() {
     return;
   }
 
-  const postAttackMoveUnit = canHandlePostAttackMoveLocally() ? getPostAttackMoveUnit() : null;
+  const postAttackMoveUnit = getPostAttackMoveUnit();
   if (postAttackMoveUnit) {
     const moveCells = getPostAttackMoveCells(postAttackMoveUnit.instanceId);
     setSelectionInfoText(`攻撃後移動: ${postAttackMoveUnit.name} は攻撃後に1マス移動できます。${moveCells.length ? '移動先を1つ選ぶか、手番終了でそのまま終了してください。' : '空きマスがないため移動できません。'}`);
@@ -6747,7 +6746,7 @@ function renderPlayerPanels() {
 function renderBoard() {
   const moveTargets = matchState.actionMode === 'move' && matchState.selectedUnitId ? getReachableMoveCells(matchState.selectedUnitId) : [];
   const attackTargets = matchState.actionMode === 'attack' && matchState.selectedUnitId ? getAttackTargets(matchState.selectedUnitId) : [];
-  const postAttackMoveTargets = canHandlePostAttackMoveLocally() ? getPostAttackMoveCells(getPostAttackMoveUnitId()) : [];
+  const postAttackMoveTargets = getPostAttackMoveUnitId() ? getPostAttackMoveCells(getPostAttackMoveUnitId()) : [];
   const placeableCells = matchState.phase === 'setup' ? getPlaceableCellsForCurrentStep() : [];
   const redeployCells = getRedeployableCells(matchState.currentPlayer);
   const pendingAction = getPendingAction();
@@ -6989,7 +6988,7 @@ function renderMatchMeta() {
       } else {
         setPhaseInfoText(`${activeLabel} の手番です。まずアイテムを1枚選ぶか、「アイテムを使わず次へ」を押してください。`);
       }
-    } else if (canHandlePostAttackMoveLocally() && getPostAttackMoveUnit()) {
+    } else if (getPostAttackMoveUnit()) {
       const postAttackMoveUnit = getPostAttackMoveUnit();
       setPhaseInfoText(`${activeLabel} の追加処理です。「${postAttackMoveUnit.name}」は攻撃後に1マス移動できます。盤面の光ったマスを選ぶか、「手番終了」で移動せずに終えてください。`);
     } else {
@@ -7353,6 +7352,7 @@ function applyPendingPostAttackMove(pendingAction) {
     clearPostAttackMoveOpportunity();
     clearPendingAction();
     renderMatchArea();
+    endTurn();
     return;
   }
   const unit = matchState.board[sourceIndex];
@@ -7360,6 +7360,7 @@ function applyPendingPostAttackMove(pendingAction) {
     clearPostAttackMoveOpportunity();
     clearPendingAction();
     renderMatchArea();
+    endTurn();
     return;
   }
 
@@ -7381,6 +7382,7 @@ function applyPendingPostAttackMove(pendingAction) {
   if (postMoveSignature) {
     scheduleCardSignatureFx(pendingAction.targetIndex, postMoveSignature, 40);
   }
+  endTurn();
 }
 
 function attackWithSelectedUnit(targetIndex) {
@@ -7676,15 +7678,10 @@ function applyPendingAttack(pendingAction) {
     }
 
     if (attackerAfterAllEffects && unitHasEffectType(attackerAfterAllEffects, 'move_after_attack_1')) {
-      if (roomSyncState.enabled && !isRoomActiveBattlePlayer()) {
-        renderMatchArea();
-        return;
-      }
       const postMoveCells = getPostAttackMoveCells(attackerAfterAllEffects.instanceId);
       if (postMoveCells.length > 0) {
         matchState.turnState.postAttackMoveUnitId = attackerAfterAllEffects.instanceId;
         matchState.selectedUnitId = attackerAfterAllEffects.instanceId;
-        clearPendingAction();
         addLog(`${attackerAfterAllEffects.name} は効果により攻撃後に1マス移動できます`);
         renderMatchArea();
         return;
@@ -7731,6 +7728,7 @@ function confirmPendingBoardAction() {
         unitId: pendingAction.unitId,
         sourceIndex: pendingAction.sourceIndex,
         targetIndex: pendingAction.targetIndex,
+        postAttackMove: true,
       });
       return;
     }
@@ -7812,47 +7810,20 @@ function handleBoardCellClick(index) {
 
   if (postAttackMoveUnitId) {
     const validPostAttackMoveCells = getPostAttackMoveCells(postAttackMoveUnitId);
-    if (unit && unit.instanceId === postAttackMoveUnitId) {
-      clearPendingAction();
-      renderMatchArea();
+    if (pendingAction) {
+      if (pendingAction.type === 'postAttackMove' && !unit && validPostAttackMoveCells.includes(index)) {
+        moveAfterAttackWithSelectedUnit(index);
+        return;
+      }
+      if (unit && unit.instanceId === postAttackMoveUnitId) {
+        clearPendingAction();
+        renderMatchArea();
+      }
       return;
     }
+
     if (!unit && validPostAttackMoveCells.includes(index)) {
-      const sourceIndex = findUnitIndexById(postAttackMoveUnitId);
-      if (sourceIndex < 0) {
-        clearPostAttackMoveOpportunity();
-        clearPendingAction();
-        renderMatchArea();
-        return;
-      }
-      const sourceUnit = matchState.board[sourceIndex];
-      if (!sourceUnit) {
-        clearPostAttackMoveOpportunity();
-        clearPendingAction();
-        renderMatchArea();
-        return;
-      }
-      if (roomSyncState.enabled && isRoomActiveBattlePlayer() && typeof roomSyncState.onMoveRequest === 'function') {
-        clearPendingAction();
-        roomSyncState.pendingMoveRequest = true;
-        renderMatchArea();
-        roomSyncState.onMoveRequest({
-          player: matchState.currentPlayer,
-          unitId: sourceUnit.instanceId,
-          sourceIndex,
-          targetIndex: index,
-        });
-        return;
-      }
-      applyPendingPostAttackMove({
-        type: 'postAttackMove',
-        unitId: sourceUnit.instanceId,
-        unitName: sourceUnit.name,
-        sourceIndex,
-        targetIndex: index,
-        fromLabel: formatCellLabel(sourceIndex),
-        toLabel: formatCellLabel(index),
-      });
+      moveAfterAttackWithSelectedUnit(index);
     }
     return;
   }
@@ -8158,15 +8129,19 @@ function applyRoomMove(data = {}) {
   if (!unitId || Number.isNaN(sourceIndex) || Number.isNaN(targetIndex)) return false;
 
   const pendingAction = getPendingAction();
-  const isPostAttackMove = getPostAttackMoveUnitId() === unitId;
+  const isPostAttackMove = !!data.postAttackMove || getPostAttackMoveUnitId() === unitId;
   clearRoomPendingRequests();
   if (data.currentPlayer) matchState.currentPlayer = data.currentPlayer;
 
   if (pendingAction && (pendingAction.type === 'move' || pendingAction.type === 'postAttackMove') && pendingAction.unitId === unitId && Number(pendingAction.targetIndex) === targetIndex) {
-    if (pendingAction.type === 'postAttackMove') {
-      clearPostAttackMoveOpportunity();
+    if (pendingAction.type === 'postAttackMove' || isPostAttackMove) {
+      applyPendingPostAttackMove({
+        ...pendingAction,
+        type: 'postAttackMove',
+      });
+    } else {
+      applyPendingMove(pendingAction);
     }
-    applyPendingMove(pendingAction);
     return true;
   }
 
@@ -8176,16 +8151,21 @@ function applyRoomMove(data = {}) {
   const unit = matchState.board[resolvedSourceIndex];
   if (!unit || (actorPlayer && unit.owner !== actorPlayer)) return false;
 
-  if (isPostAttackMove) {
-    clearPostAttackMoveOpportunity();
-  }
-  applyPendingMove({
+  const resolvedAction = {
     type: isPostAttackMove ? 'postAttackMove' : 'move',
     unitId,
+    unitName: unit.name,
+    sourceIndex: resolvedSourceIndex,
     targetIndex,
     fromLabel: formatCellLabel(resolvedSourceIndex),
     toLabel: formatCellLabel(targetIndex),
-  });
+  };
+
+  if (isPostAttackMove) {
+    applyPendingPostAttackMove(resolvedAction);
+  } else {
+    applyPendingMove(resolvedAction);
+  }
   return true;
 }
 

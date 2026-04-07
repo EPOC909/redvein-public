@@ -1372,10 +1372,9 @@ function handleMoveUnit(data, ws) {
     send(ws, { type: 'error', message: 'その移動先は選べません。' });
     return;
   }
-  const wasPostAttackMove = game.turnState.postAttackMoveUnitId === unitId;
   game.board[targetIndex] = sourceUnit;
   game.board[sourceIndex] = null;
-  if (wasPostAttackMove) {
+  if (game.turnState.postAttackMoveUnitId === unitId) {
     game.turnState.postAttackMoveUnitId = null;
     game.turnState.moved = true;
     game.turnState.movedUnitId = unitId;
@@ -1405,9 +1404,7 @@ function handleMoveUnit(data, ws) {
     unitId,
     sourceIndex,
     targetIndex,
-    postAttackMove: wasPostAttackMove,
     currentPlayer: game.currentPlayer,
-    round: game.round,
   };
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([_, slot]) => slot?.ws && send(slot.ws, payload));
 }
