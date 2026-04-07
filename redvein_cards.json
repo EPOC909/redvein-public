@@ -679,8 +679,8 @@
     "hp": 2,
     "atk": 4,
     "move": 2,
-    "effect_text": "斜めにも移動できる",
-    "effect_type": "diagonal_move",
+    "effect_text": "このユニットは攻撃後、1マス移動できる",
+    "effect_type": "move_after_attack_1",
     "image_file": "SP-007.png"
   },
   {
