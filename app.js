@@ -1026,7 +1026,7 @@ function buildGuideState() {
     };
   }
 
-  const attackReady = !currentPlayerCannotAttackAfterMove() && !matchState.turnState?.attacked && !matchState.turnState?.attackUnitId;
+  const attackReady = !currentPlayerCannotAttackAfterMove(selectedUnit) && !matchState.turnState?.attacked && !matchState.turnState?.attackUnitId;
   const moveReady = !matchState.turnState?.moved || (matchState.turnState?.acceleratedUnitId === selectedUnit.instanceId && matchState.turnState?.acceleratedMovesRemaining > 0);
   const options = [];
   if (moveReady) options.push('移動');
@@ -1074,6 +1074,83 @@ function updateActionGuide() {
   if (typeof state.highlight === 'function') state.highlight();
 }
 
+
+
+function injectStatusBadgeStyles() {
+  if (document.getElementById('redveinStatusBadgeStyle')) return;
+  const style = document.createElement('style');
+  style.id = 'redveinStatusBadgeStyle';
+  style.textContent = `
+    .unit-status-badge.field-immune {
+      background: linear-gradient(180deg, rgba(66, 130, 255, 0.95), rgba(28, 78, 194, 0.95));
+      border-color: rgba(186, 220, 255, 0.88);
+      box-shadow: 0 0 12px rgba(73, 132, 255, 0.28);
+      color: #f7fbff;
+    }
+    .unit-status-badge.item-untargetable {
+      background: linear-gradient(180deg, rgba(24, 166, 138, 0.96), rgba(12, 120, 97, 0.96));
+      border-color: rgba(176, 255, 235, 0.88);
+      box-shadow: 0 0 12px rgba(27, 180, 148, 0.24);
+      color: #f5fffd;
+    }
+    .unit-status-badge.item-destroy-immune {
+      background: linear-gradient(180deg, rgba(214, 104, 39, 0.96), rgba(161, 54, 19, 0.96));
+      border-color: rgba(255, 214, 179, 0.9);
+      box-shadow: 0 0 12px rgba(214, 104, 39, 0.24);
+      color: #fff8f3;
+    }
+    .unit-status-badge.no-heal-revive {
+      background: linear-gradient(180deg, rgba(132, 53, 186, 0.96), rgba(90, 36, 136, 0.96));
+      border-color: rgba(216, 177, 255, 0.9);
+      box-shadow: 0 0 12px rgba(159, 103, 224, 0.28);
+      color: #fff8ff;
+    }
+    .unit-status-badge.item-stun-immune {
+      background: linear-gradient(180deg, rgba(57, 124, 201, 0.96), rgba(30, 78, 152, 0.96));
+      border-color: rgba(180, 226, 255, 0.9);
+      box-shadow: 0 0 12px rgba(74, 149, 230, 0.24);
+      color: #f5fbff;
+    }
+    .unit-status-badge.control-guard {
+      background: linear-gradient(180deg, rgba(190, 141, 48, 0.96), rgba(126, 86, 19, 0.96));
+      border-color: rgba(255, 231, 181, 0.9);
+      box-shadow: 0 0 12px rgba(222, 176, 73, 0.24);
+      color: #fff9ef;
+    }
+    .unit-status-badge.center-silence {
+      background: linear-gradient(180deg, rgba(78, 92, 116, 0.96), rgba(46, 56, 76, 0.96));
+      border-color: rgba(186, 204, 231, 0.88);
+      box-shadow: 0 0 12px rgba(125, 146, 183, 0.24);
+      color: #f6f9ff;
+    }
+    .unit-status-badge.full-silence {
+      background: linear-gradient(180deg, rgba(103, 70, 134, 0.96), rgba(65, 40, 90, 0.96));
+      border-color: rgba(214, 191, 255, 0.9);
+      box-shadow: 0 0 12px rgba(151, 118, 205, 0.24);
+      color: #fcf8ff;
+    }
+    .unit-status-badge.field-immune .status-badge-icon,
+    .unit-status-badge.item-untargetable .status-badge-icon,
+    .unit-status-badge.item-destroy-immune .status-badge-icon,
+    .unit-status-badge.item-stun-immune .status-badge-icon,
+    .unit-status-badge.control-guard .status-badge-icon,
+    .unit-status-badge.no-heal-revive .status-badge-icon,
+    .unit-status-badge.center-silence .status-badge-icon,
+    .unit-status-badge.full-silence .status-badge-icon,
+    .unit-status-badge.field-immune .status-badge-value,
+    .unit-status-badge.item-untargetable .status-badge-value,
+    .unit-status-badge.item-destroy-immune .status-badge-value,
+    .unit-status-badge.item-stun-immune .status-badge-value,
+    .unit-status-badge.control-guard .status-badge-value,
+    .unit-status-badge.no-heal-revive .status-badge-value,
+    .unit-status-badge.center-silence .status-badge-value,
+    .unit-status-badge.full-silence .status-badge-value {
+      color: inherit;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 function injectItemPickerStyles() {
   if (document.getElementById('redveinItemPickerStyle')) return;
@@ -2482,7 +2559,7 @@ function getSpectatorHudState() {
     } else {
       const moveText = matchState.turnState?.moved ? '移動済み' : '移動可能';
       let attackText = matchState.turnState?.attacked ? '攻撃済み' : '攻撃可能';
-      if (currentPlayerCannotAttackAfterMove()) attackText = '移動後攻撃不可';
+      if (currentPlayerCannotAttackAfterMove(getCurrentUnitForFieldRestrictionCheck())) attackText = '移動後攻撃不可';
       main = `${currentLabel} が盤面を操作中です`;
       sub = `${moveText} / ${attackText} / 最新ログ: ${latestLog}`;
       chips.push(matchState.currentPlayer === 'player1' ? 'P1 TURN' : 'P2 TURN');
@@ -3398,7 +3475,7 @@ function getAttackPresentationProfile(attacker, sourceIndex, targetIndex, defend
     return {
       ...base,
       kind: 'projectile',
-      tone: attacker.cardId === 'RV-045' ? 'holy' : 'attack',
+      tone: (isUnitCardEffectActive(attacker) && attacker.cardId === 'RV-045') ? 'holy' : 'attack',
       projectile: true,
       lunge: false,
       travelDuration: 360,
@@ -3408,7 +3485,7 @@ function getAttackPresentationProfile(attacker, sourceIndex, targetIndex, defend
     };
   }
 
-  if (attacker.cardId === 'RV-033' || unitHasEffectType(attacker, 'pierce_line_2')) {
+  if ((isUnitCardEffectActive(attacker) && attacker.cardId === 'RV-033') || unitHasEffectType(attacker, 'pierce_line_2')) {
     return {
       ...base,
       kind: 'pierce',
@@ -3423,7 +3500,7 @@ function getAttackPresentationProfile(attacker, sourceIndex, targetIndex, defend
     };
   }
 
-  if (attacker.cardId === 'RV-039') {
+  if (isUnitCardEffectActive(attacker) && attacker.cardId === 'RV-039') {
     return {
       ...base,
       kind: 'shadow',
@@ -3437,7 +3514,7 @@ function getAttackPresentationProfile(attacker, sourceIndex, targetIndex, defend
     };
   }
 
-  if (attacker.cardId === 'RV-040') {
+  if (isUnitCardEffectActive(attacker) && attacker.cardId === 'RV-040') {
     return {
       ...base,
       kind: 'slash',
@@ -3452,7 +3529,7 @@ function getAttackPresentationProfile(attacker, sourceIndex, targetIndex, defend
     };
   }
 
-  if (attacker.cardId === 'RV-028' && options.backstab) {
+  if (isUnitCardEffectActive(attacker) && attacker.cardId === 'RV-028' && options.backstab) {
     return {
       ...base,
       kind: 'shadow',
@@ -4189,6 +4266,7 @@ function createEmptyPlayerState() {
     defeated: 0,
     teamDamageReduction: 0,
     teamDamageReductionExpiresOnOwnTurnStart: false,
+    negateEnemyFieldUntilOwnTurnStart: false,
   };
 }
 
@@ -4292,7 +4370,7 @@ function getAdjacentGuardianReduction(targetIndex, ownerKey) {
     if (r < 0 || r > 4 || c < 0 || c > 4) continue;
     const unit = matchState.board[coordToIndex(r, c)];
     if (!unit) continue;
-    if (unit.owner === ownerKey && unit.cardId === 'RV-013') count += 1;
+    if (unit.owner === ownerKey && unit.cardId === 'RV-013' && isUnitCardEffectActive(unit, coordToIndex(r, c))) count += 1;
   }
   return count;
 }
@@ -4308,7 +4386,7 @@ function getAdjacentEnemySentryReduction(targetIndex, ownerKey) {
     if (r < 0 || r > 4 || c < 0 || c > 4) continue;
     const unit = matchState.board[coordToIndex(r, c)];
     if (!unit) continue;
-    if (unit.owner !== ownerKey && unit.cardId === 'RV-011') count += 1;
+    if (unit.owner !== ownerKey && unit.cardId === 'RV-011' && isUnitCardEffectActive(unit, coordToIndex(r, c))) count += 1;
   }
   return count;
 }
@@ -4324,7 +4402,7 @@ function findAdjacentGuardianKnight(targetIndex, ownerKey) {
     const idx = coordToIndex(r, c);
     const unit = matchState.board[idx];
     if (!unit) continue;
-    if (unit.owner === ownerKey && unit.cardId === 'RV-032' && !unit.guardBlockUsed) {
+    if (unit.owner === ownerKey && unitHasEffectType(unit, 'guard_adjacent_ally_once') && !unit.guardBlockUsed) {
       return { unit, index: idx };
     }
   }
@@ -4359,15 +4437,38 @@ function isBackAttack(attackerIndex, defenderIndex, defenderOwner) {
   return attacker.col === defender.col + 1;
 }
 
+function targetHasAtkBuffOrReduction(defender, defenderIndex) {
+  if (!defender) return false;
+  const hasAtkBuff = !isUnitBuffsAndHealNegated(defender)
+    && (Number(defender.tempAtkBuff || 0) > 0 || getFieldAttackBonus(defender, defenderIndex) > 0);
+  const hasReduction = getUnitDamageReductionTotal(defender, defenderIndex) > 0;
+  return hasAtkBuff || hasReduction;
+}
+
+function targetHasFieldBuffOrReduction(defender, defenderIndex) {
+  if (!defender) return false;
+  const hasFieldAtkBuff = !isUnitBuffsAndHealNegated(defender) && getFieldAttackBonus(defender, defenderIndex) > 0;
+  const hasFieldReduction = defenderIndex != null && isPointZone(defenderIndex)
+    && playerHasFieldEffect(defender.owner, 'field_center_ally_guard_1_atk_plus_1');
+  return hasFieldAtkBuff || hasFieldReduction;
+}
+
 function getTargetedAttackBonus(attacker, attackerIndex, defender, defenderIndex) {
-  if (!attacker || !defender) return 0;
+  if (!attacker || !defender || isUnitBuffsAndHealNegated(attacker) || isUnitCenterSilenced(attacker, attackerIndex)) return 0;
   let bonus = 0;
-  if (attacker.cardId === 'RV-028' && isBackAttack(attackerIndex, defenderIndex, defender.owner)) bonus += 1;
+  if (isUnitCardEffectActive(attacker, attackerIndex) && attacker.cardId === 'RV-028' && isBackAttack(attackerIndex, defenderIndex, defender.owner)) bonus += 1;
+  if (unitHasEffectType(attacker, 'atk_plus_1_vs_full_or_healed_enemy') || unitHasEffectType(attacker, 'on_damage_apply_no_heal_until_next_opponent_round_and_no_revive_if_destroyed_plus_atk_1_vs_full_or_healed_enemy')) {
+    const isFull = Number(defender.currentHp || 0) >= Number(defender.maxHp || 0);
+    const healedThisRound = Number(defender.healedInRound || 0) === Number(matchState.round || 0);
+    if (isFull || healedThisRound) bonus += 1;
+  }
+  if (unitHasEffectType(attacker, 'atk_plus_1_vs_buffed_or_reduced_enemy_and_ignore_reduction') && targetHasAtkBuffOrReduction(defender, defenderIndex)) bonus += 1;
+  if (unitHasEffectType(attacker, 'ignore_reduction_vs_center_enemy_and_atk_plus_1_if_field_buffed') && isPointZone(defenderIndex) && targetHasFieldBuffOrReduction(defender, defenderIndex)) bonus += 1;
   return bonus;
 }
 
 function getConditionalAttackBonus(unit, boardIndex) {
-  if (!unit) return 0;
+  if (!unit || isUnitBuffsAndHealNegated(unit) || isUnitCenterSilenced(unit, boardIndex)) return 0;
   let bonus = 0;
   if (unit.cardId === 'RV-012' && isPointZone(boardIndex)) bonus += 1;
   if (unit.cardId === 'RV-030' && matchState.phase === 'battle' && matchState.turnState?.movedUnitId === unit.instanceId) bonus += 1;
@@ -4413,12 +4514,14 @@ function getHpClass(currentHp, maxHp) {
 
 function getUnitDamageReductionParts(unit, boardIndex = null, options = {}) {
   if (!unit) return [];
+  if (isUnitBuffsAndHealNegated(unit)) return [];
   const player = getPlayerState(unit.owner);
   const parts = [];
   const shieldReduction = Number(unit.singleUseDamageReduction || 0);
   const teamReduction = Number(player?.teamDamageReduction || 0);
   const guardianReduction = boardIndex != null ? getAdjacentGuardianReduction(boardIndex, unit.owner) : 0;
   const attacker = options?.attacker || null;
+  const sourceType = String(options?.sourceType || '');
   const strongerEnemyReduction = attacker
     && attacker.owner !== unit.owner
     && unitHasEffectType(unit, 'reduce_damage_from_stronger_enemy_1')
@@ -4429,7 +4532,13 @@ function getUnitDamageReductionParts(unit, boardIndex = null, options = {}) {
   if (teamReduction > 0) parts.push({ label: '防壁展開', value: teamReduction });
   if (guardianReduction > 0) parts.push({ label: guardianReduction > 1 ? `守護兵×${guardianReduction}` : '守護兵', value: guardianReduction });
   if (strongerEnemyReduction > 0) parts.push({ label: '断罪の聖騎士', value: strongerEnemyReduction });
-  if (boardIndex != null && isPointZone(boardIndex)) {
+  if (sourceType === 'enemy_item' && boardIndex != null && hasAdjacentHolyLanceAura(unit, boardIndex)) {
+    parts.push({ label: '星祈の聖槍', value: 1 });
+  }
+  if (boardIndex != null && isPointZone(boardIndex) && unitHasEffectType(unit, 'ignore_enemy_field_effects_and_center_guard_1')) {
+    parts.push({ label: '蒼淵の海剣', value: 1 });
+  }
+  if (boardIndex != null && isPointZone(boardIndex) && !isEnemyCenterFieldBuffHealNegated(unit, boardIndex)) {
     const fieldCard = getPlayerFieldCard(unit.owner);
     if (fieldCard?.effect_type === 'field_center_ally_guard_1_atk_plus_1') {
       parts.push({ label: '王の玉座', value: 1 });
@@ -4461,14 +4570,22 @@ function getPendingAttackBonusForUnit(unit) {
 
 function getUnitAttackBonusParts(unit, boardIndex = null) {
   if (!unit) return [];
+  if (isUnitBuffsAndHealNegated(unit)) return [];
   const parts = [];
   if (Number(unit.tempAtkBuff || 0) > 0) parts.push({ label: '一時攻撃補正', value: Number(unit.tempAtkBuff || 0) });
-  const fieldBonus = getFieldAttackBonus(unit.owner, boardIndex);
+  const fieldBonus = getFieldAttackBonus(unit, boardIndex);
   if (fieldBonus > 0) parts.push({ label: '環境補正', value: fieldBonus });
-  if (unit.cardId === 'RV-012' && isPointZone(boardIndex)) parts.push({ label: '斬撃兵', value: 1 });
-  if (unit.cardId === 'RV-030' && matchState.phase === 'battle' && matchState.turnState?.movedUnitId === unit.instanceId) parts.push({ label: '騎馬兵', value: 1 });
+  if (!isUnitCenterSilenced(unit, boardIndex) && unit.cardId === 'RV-012' && isPointZone(boardIndex)) parts.push({ label: '斬撃兵', value: 1 });
+  if (!isUnitCenterSilenced(unit, boardIndex) && unit.cardId === 'RV-030' && matchState.phase === 'battle' && matchState.turnState?.movedUnitId === unit.instanceId) parts.push({ label: '騎馬兵', value: 1 });
   const pendingBonus = getPendingAttackBonusForUnit(unit);
-  if (pendingBonus > 0) parts.push({ label: '背後攻撃', value: pendingBonus });
+  if (pendingBonus > 0) {
+    const effectType = getUnitMeta(unit)?.effect_type || '';
+    let label = '背後攻撃';
+    if (effectType === 'atk_plus_1_vs_full_or_healed_enemy') label = '朱蓮の鳳刀';
+    if (effectType === 'atk_plus_1_vs_buffed_or_reduced_enemy_and_ignore_reduction') label = '蝕月の断鎌';
+    if (effectType === 'ignore_reduction_vs_center_enemy_and_atk_plus_1_if_field_buffed') label = '焔継の王剣';
+    parts.push({ label, value: pendingBonus });
+  }
   if (getRoyalCommandAttackBonus(unit) > 0) parts.push({ label: '王冠の勅命', value: getRoyalCommandAttackBonus(unit) });
   return parts;
 }
@@ -4487,12 +4604,21 @@ function getStatusBadgeIcon(kind) {
   if (kind === 'move-up' || kind === 'move-down') return '➜';
   if (kind === 'move-lock') return '⛔';
   if (kind === 'action-lock' || kind === 'attack-lock') return '🚫';
+  if (kind === 'field-immune') return '界';
+  if (kind === 'item-untargetable') return '的';
+  if (kind === 'item-destroy-immune') return '破';
+  if (kind === 'item-stun-immune') return '止';
+  if (kind === 'control-guard') return '防';
+  if (kind === 'no-heal-revive') return '癒';
+  if (kind === 'center-silence') return '黙';
+  if (kind === 'full-silence') return '封';
   return '•';
 }
 
 function getUnitAbilityBadges(unit) {
   const meta = getUnitMeta(unit);
   if (!meta) return [];
+  if (isUnitCenterSilenced(unit) || isUnitFullySilenced(unit)) return [];
   const effectType = String(meta.effect_type || '');
   const badges = [];
   const push = (kind, label, title) => badges.push({ kind, label, title });
@@ -4537,7 +4663,7 @@ function findAdjacentReadyGuardianKnight(boardIndex, ownerKey) {
     const idx = coordToIndex(r, c);
     const unit = matchState.board[idx];
     if (!unit || unit.owner !== ownerKey) continue;
-    if ((unit.cardId === 'RV-032' || unit.name === '守護騎士') && unit.guardBlockUsed !== true) {
+    if (unitHasEffectType(unit, 'guard_adjacent_ally_once') && unit.guardBlockUsed !== true) {
       return { unit, index: idx };
     }
   }
@@ -4554,7 +4680,7 @@ function getUnitStatusBadges(unit, boardIndex = null) {
   if (canNegateDamageOnce(unit)) {
     badges.push({ kind: 'guard-ready', value: '1', title: '騎士: 試合中1回だけダメージを無効化します' });
   }
-  const selfGuardReady = (unit.cardId === 'RV-032' || unit.name === '守護騎士') && unit.guardBlockUsed !== true;
+  const selfGuardReady = unitHasEffectType(unit, 'guard_adjacent_ally_once') && unit.guardBlockUsed !== true;
   const protectedByGuardian = boardIndex != null ? findAdjacentReadyGuardianKnight(boardIndex, unit.owner) : null;
   if (selfGuardReady || (protectedByGuardian && protectedByGuardian.unit.instanceId !== unit.instanceId)) {
     badges.push({ kind: 'guard-ready', value: '1', title: selfGuardReady ? '守護騎士: 隣接する味方への攻撃を1回だけ完全防御' : `${protectedByGuardian.unit.name}: このユニットへの攻撃を1回だけ完全防御` });
@@ -4582,6 +4708,33 @@ function getUnitStatusBadges(unit, boardIndex = null) {
     badges.push({ kind: 'action-lock', value: '×', title: 'この手番は行動不可' });
   } else if (unit.attackLocked) {
     badges.push({ kind: 'attack-lock', value: '×', title: 'この手番は攻撃不可' });
+  }
+  if (unitIgnoresEnemyFieldEffects(unit)) {
+    badges.push({ kind: 'field-immune', title: '敵の環境カードの効果を受けません' });
+  }
+  if (isUnitUntargetableByEnemyItems(unit)) {
+    badges.push({ kind: 'item-untargetable', title: '次の相手ラウンド終了時まで、敵アイテムの対象になりません' });
+  }
+  if (boardIndex != null && hasAdjacentHolyLanceAura(unit, boardIndex)) {
+    badges.push({ kind: 'item-stun-immune', value: '1', title: '星祈の聖槍: 敵アイテムのダメージを1軽減し、行動不能になりません' });
+  }
+  if (isUnitProtectedFromEnemyItemDestroy(unit, boardIndex)) {
+    badges.push({ kind: 'item-destroy-immune', title: '敵アイテムの破壊効果を受けません' });
+  }
+  if (unit.negateNextDestroyStunDisableAttackUntilTurnStartOf) {
+    badges.push({ kind: 'control-guard', value: '1', title: '竜骨の戦冠: 次に受ける破壊・行動不能・攻撃不能のいずれか1つを無効化します' });
+  }
+  if (unitHasEffectType(unit, 'negate_destroy_stun_disable_once_from_enemy_item_or_field_and_center_aura_adjacent_allies_no_item_destroy') && unit.itemFieldNegateControlUsed !== true) {
+    badges.push({ kind: 'control-guard', value: '1', title: '竜骸の覇斧: 敵アイテムまたは環境による破壊・行動不能・攻撃不能を試合中1回だけ無効化します' });
+  }
+  if (unitHasNoHealNoRevive(unit)) {
+    badges.push({ kind: 'no-heal-revive', title: '次の相手ラウンド終了時まで HPを回復できず、倒された場合は復活できません' });
+  }
+  if (isUnitFullySilenced(unit)) {
+    badges.push({ kind: 'full-silence', title: '次の相手ラウンド終了時まで、このユニットのカード効果は無効です' });
+  }
+  if (isUnitCenterSilenced(unit, boardIndex)) {
+    badges.push({ kind: 'center-silence', title: '次の相手ラウンド終了時まで、中央9マスにいる間は効果を失い攻撃できません' });
   }
   return badges;
 }
@@ -4684,7 +4837,7 @@ function generateUnlockSaveKey() {
 
 function normalizeUnlockTokens(value) {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.map((entry) => String(entry || '').trim()).filter(Boolean))].slice(0, 24);
+  return [...new Set(value.map((entry) => String(entry || '').trim()).filter(Boolean))].slice(0, 64);
 }
 
 
@@ -5395,6 +5548,15 @@ function createUnitInstance(cardId, owner, forcedInstanceId = '') {
     guardBlockUsed: false,
     negateDamageUsed: false,
     surviveOnceUsed: false,
+    healedInRound: 0,
+    untargetableByEnemyItemsUntilTurnStartOf: '',
+    negateBuffsAndHealUntilTurnStartOf: '',
+    noHealNoReviveUntilTurnStartOf: '',
+    centerSilenceDisableAttackUntilTurnStartOf: '',
+    fullSilenceUntilTurnStartOf: '',
+    negateNextDestroyStunDisableAttackUntilTurnStartOf: '',
+    itemFieldNegateControlUsed: false,
+    nextAttackAppliesNoHealNoRevive: false,
   };
 }
 
@@ -5405,6 +5567,255 @@ function getPlayerState(playerKey) {
 function getOpponent(playerKey) {
   return playerKey === 'player1' ? 'player2' : 'player1';
 }
+
+function hasAdjacentCenterAuraItemUntargetable(unit, boardIndex = null) {
+  if (!unit || boardIndex == null) return false;
+  return getOrthogonalNeighbors(boardIndex).some((idx) => {
+    const ally = matchState.board[idx];
+    return ally
+      && ally.owner === unit.owner
+      && ally.instanceId !== unit.instanceId
+      && isPointZone(idx)
+      && unitHasEffectType(ally, 'center_aura_adjacent_allies_untargetable_by_enemy_items');
+  });
+}
+
+function hasAdjacentCenterAuraNoItemDestroy(unit, boardIndex = null) {
+  if (!unit || boardIndex == null) return false;
+  return getOrthogonalNeighbors(boardIndex).some((idx) => {
+    const ally = matchState.board[idx];
+    return ally
+      && ally.owner === unit.owner
+      && ally.instanceId !== unit.instanceId
+      && isPointZone(idx)
+      && unitHasEffectType(ally, 'negate_destroy_stun_disable_once_from_enemy_item_or_field_and_center_aura_adjacent_allies_no_item_destroy');
+  });
+}
+
+function hasAdjacentHolyLanceAura(unit, boardIndex = null) {
+  if (!unit || boardIndex == null) return false;
+  return getOrthogonalNeighbors(boardIndex).some((idx) => {
+    const ally = matchState.board[idx];
+    return ally
+      && ally.owner === unit.owner
+      && ally.instanceId !== unit.instanceId
+      && unitHasEffectType(ally, 'aura_item_damage_minus_1_and_no_stun');
+  });
+}
+
+function isEnemyCenterFieldBuffHealNegated(unit, boardIndex = null) {
+  if (!unit || boardIndex == null || !isPointZone(boardIndex)) return false;
+  return matchState.board.some((otherUnit, idx) => {
+    if (!otherUnit || otherUnit.owner === unit.owner || !isPointZone(idx)) return false;
+    return unitHasEffectType(otherUnit, 'ignore_enemy_field_effects_self_and_center_aura_negate_enemy_field_buffs_heal_and_ignore_reduction_vs_center', idx);
+  });
+}
+
+function isUnitUntargetableByEnemyItems(unit, boardIndex = null) {
+  if (!unit) return false;
+  if (unit.untargetableByEnemyItemsUntilTurnStartOf) return true;
+  const resolvedIndex = boardIndex == null ? getBoardIndexForUnit(unit) : boardIndex;
+  return resolvedIndex >= 0 && hasAdjacentCenterAuraItemUntargetable(unit, resolvedIndex);
+}
+
+function isUnitFullySilenced(unit) {
+  return !!(unit && unit.fullSilenceUntilTurnStartOf);
+}
+
+function isUnitBuffsAndHealNegated(unit) {
+  return !!(unit && (unit.negateBuffsAndHealUntilTurnStartOf || unit.fullSilenceUntilTurnStartOf));
+}
+
+function unitIgnoresEnemyFieldEffects(unit) {
+  if (!unit || isUnitCenterSilenced(unit) || isUnitFullySilenced(unit)) return false;
+  const effectType = getUnitMeta(unit)?.effect_type || '';
+  return effectType === 'ignore_enemy_field_effects_and_center_guard_1'
+    || effectType.startsWith('ignore_enemy_field_effects_self');
+}
+
+function isUnitProtectedFromEnemyItemDestroy(unit, boardIndex = null) {
+  if (!unit || boardIndex == null) return false;
+  if (isPointZone(boardIndex) && playerHasFieldEffect(unit.owner, 'field_center_allies_cannot_be_destroyed_by_enemy_items')) {
+    return true;
+  }
+  if (hasAdjacentCenterAuraNoItemDestroy(unit, boardIndex)) {
+    return true;
+  }
+  return false;
+}
+
+function isUnitProtectedFromEnemyItemStun(unit, boardIndex = null) {
+  if (!unit || boardIndex == null) return false;
+  return hasAdjacentHolyLanceAura(unit, boardIndex);
+}
+
+function tryConsumeDestroyStunDisableProtection(unit, boardIndex, triggerKind, sourceType, sourceLabel = '') {
+  if (!unit) return false;
+  const triggerNameMap = {
+    destroy: '破壊',
+    stun: '行動不能',
+    disable_attack: '攻撃不能',
+  };
+  const triggerName = triggerNameMap[triggerKind] || '効果';
+  if (unit.negateNextDestroyStunDisableAttackUntilTurnStartOf) {
+    unit.negateNextDestroyStunDisableAttackUntilTurnStartOf = '';
+    addLog(`${sourceLabel}${unit.name} は ${triggerName} を無効化しました`);
+    return true;
+  }
+  if ((sourceType === 'enemy_item' || sourceType === 'enemy_field')
+    && unitHasEffectType(unit, 'negate_destroy_stun_disable_once_from_enemy_item_or_field_and_center_aura_adjacent_allies_no_item_destroy', boardIndex)
+    && unit.itemFieldNegateControlUsed !== true) {
+    unit.itemFieldNegateControlUsed = true;
+    addLog(`${sourceLabel}${unit.name} は試合中1回の耐性で ${triggerName} を無効化しました`);
+    return true;
+  }
+  return false;
+}
+
+function getCurrentUnitForFieldRestrictionCheck() {
+  const selected = getSelectedUnit();
+  if (selected && selected.owner === matchState.currentPlayer) return selected;
+  const movedUnitId = matchState.turnState?.movedUnitId || null;
+  if (!movedUnitId) return null;
+  const movedIndex = findUnitIndexById(movedUnitId);
+  if (movedIndex < 0) return null;
+  const movedUnit = matchState.board[movedIndex];
+  return movedUnit && movedUnit.owner === matchState.currentPlayer ? movedUnit : null;
+}
+
+function markUnitHealedThisRound(unit) {
+  if (!unit) return;
+  unit.healedInRound = Number(matchState.round || 0);
+}
+
+function healUnitForEffect(unit, amount) {
+  if (!unit || amount <= 0) return { healed: 0, blocked: false };
+  const boardIndex = getBoardIndexForUnit(unit);
+  if (isUnitBuffsAndHealNegated(unit) || unitHasNoHealNoRevive(unit) || isEnemyCenterFieldBuffHealNegated(unit, boardIndex)) return { healed: 0, blocked: true };
+  const before = Number(unit.currentHp || 0);
+  unit.currentHp = Math.min(Number(unit.maxHp || 0), before + Number(amount || 0));
+  const healed = Math.max(0, unit.currentHp - before);
+  if (healed > 0) markUnitHealedThisRound(unit);
+  return { healed, blocked: false };
+}
+
+function getCleansableStatusKinds(unit) {
+  if (!unit) return [];
+  const kinds = [];
+  if (unit.actionLocked || Number(unit.skipActionTurns || 0) > 0) kinds.push('action');
+  if (unit.attackLocked || Number(unit.skipAttackTurns || 0) > 0) kinds.push('attack');
+  if (Number(unit.tempMoveBuff || 0) < 0) kinds.push('move');
+  return kinds;
+}
+
+function clearCleansableStatus(unit, kind) {
+  if (!unit || !kind) return false;
+  if (kind === 'action') {
+    const had = !!unit.actionLocked || Number(unit.skipActionTurns || 0) > 0;
+    unit.actionLocked = false;
+    unit.skipActionTurns = 0;
+    return had;
+  }
+  if (kind === 'attack') {
+    const had = !!unit.attackLocked || Number(unit.skipAttackTurns || 0) > 0;
+    unit.attackLocked = false;
+    unit.skipAttackTurns = 0;
+    return had;
+  }
+  if (kind === 'move') {
+    const had = Number(unit.tempMoveBuff || 0) < 0;
+    if (had) unit.tempMoveBuff = 0;
+    return had;
+  }
+  return false;
+}
+
+function clearOneCleansableStatus(unit) {
+  for (const kind of ['action', 'attack', 'move']) {
+    if (clearCleansableStatus(unit, kind)) return kind;
+  }
+  return '';
+}
+
+function clearAllCleansableStatuses(unit) {
+  const cleared = [];
+  ['action', 'attack', 'move'].forEach((kind) => {
+    if (clearCleansableStatus(unit, kind)) cleared.push(kind);
+  });
+  return cleared;
+}
+
+function getCleanseStatusLabel(kind) {
+  if (kind === 'action') return '行動不能';
+  if (kind === 'attack') return '攻撃不能';
+  if (kind === 'move') return '移動力-1';
+  return '状態異常';
+}
+
+function chooseFieldStartCenterAlly(playerKey) {
+  let best = null;
+  for (let index = 0; index < matchState.board.length; index += 1) {
+    const unit = matchState.board[index];
+    if (!unit || unit.owner !== playerKey || !isPointZone(index)) continue;
+    const cleanseCount = getCleansableStatusKinds(unit).length;
+    const missingHp = Math.max(0, Number(unit.maxHp || 0) - Number(unit.currentHp || 0));
+    const score = cleanseCount * 100 + missingHp * 10 + (24 - index);
+    if (!best || score > best.score) best = { index, unit, score };
+  }
+  return best;
+}
+
+function chooseAdjacentAllyForSwapCleanse(unitIndex, ownerKey, excludeUnitId = '') {
+  let best = null;
+  getOrthogonalNeighbors(unitIndex).forEach((idx) => {
+    const ally = matchState.board[idx];
+    if (!ally || ally.owner !== ownerKey || ally.instanceId === excludeUnitId) return;
+    const statusKinds = getCleansableStatusKinds(ally);
+    if (!statusKinds.length) return;
+    const priority = statusKinds.includes('action') ? 3 : statusKinds.includes('attack') ? 2 : 1;
+    const score = priority * 100 + statusKinds.length * 10 + (24 - idx);
+    if (!best || score > best.score) best = { index: idx, unit: ally, score };
+  });
+  return best;
+}
+
+function applyFieldStartOfTurnEffects(playerKey) {
+  if (!playerHasFieldEffect(playerKey, 'field_start_round_heal_1_and_cleanse_center_ally')) return;
+  const target = chooseFieldStartCenterAlly(playerKey);
+  if (!target?.unit) return;
+  const healResult = healUnitForEffect(target.unit, 1);
+  const clearedKinds = clearAllCleansableStatuses(target.unit);
+  const parts = [];
+  if (healResult.healed > 0) parts.push(`HPを ${healResult.healed} 回復`);
+  if (healResult.blocked) parts.push('HP回復は無効');
+  if (clearedKinds.length) parts.push(`${clearedKinds.map(getCleanseStatusLabel).join(' / ')} を解除`);
+  addLog(`${PLAYER_LABEL[playerKey]}: 降神の祭壇により ${target.unit.name}${parts.length ? ` は ${parts.join('、')} しました` : ' を選びました'}`);
+}
+
+function clearExpiredUnitStatusEffectsForPlayer(playerKey) {
+  matchState.board.forEach((unit) => {
+    if (!unit) return;
+    if (unit.untargetableByEnemyItemsUntilTurnStartOf === playerKey) {
+      unit.untargetableByEnemyItemsUntilTurnStartOf = '';
+    }
+    if (unit.negateBuffsAndHealUntilTurnStartOf === playerKey) {
+      unit.negateBuffsAndHealUntilTurnStartOf = '';
+    }
+    if (unit.noHealNoReviveUntilTurnStartOf === playerKey) {
+      unit.noHealNoReviveUntilTurnStartOf = '';
+    }
+    if (unit.centerSilenceDisableAttackUntilTurnStartOf === playerKey) {
+      unit.centerSilenceDisableAttackUntilTurnStartOf = '';
+    }
+    if (unit.fullSilenceUntilTurnStartOf === playerKey) {
+      unit.fullSilenceUntilTurnStartOf = '';
+    }
+    if (unit.negateNextDestroyStunDisableAttackUntilTurnStartOf === playerKey) {
+      unit.negateNextDestroyStunDisableAttackUntilTurnStartOf = '';
+    }
+  });
+}
+
 
 function findUnitIndexById(instanceId) {
   return matchState.board.findIndex((unit) => unit && unit.instanceId === instanceId);
@@ -5422,11 +5833,36 @@ function getUnitMeta(unit) {
   return cardMap.get(unit.cardId) || null;
 }
 
+function getBoardIndexForUnit(unit) {
+  if (!unit?.instanceId) return -1;
+  return findUnitIndexById(unit.instanceId);
+}
+
+function isUnitCenterSilenced(unit, boardIndex = null) {
+  if (!unit?.centerSilenceDisableAttackUntilTurnStartOf) return false;
+  const resolvedIndex = boardIndex == null ? getBoardIndexForUnit(unit) : boardIndex;
+  return resolvedIndex >= 0 && isPointZone(resolvedIndex);
+}
+
+function unitHasNoHealNoRevive(unit) {
+  return !!(unit && unit.noHealNoReviveUntilTurnStartOf);
+}
+
+function isUnitCardEffectActive(unit, boardIndex = null) {
+  return !!unit && !isUnitCenterSilenced(unit, boardIndex) && !isUnitFullySilenced(unit);
+}
+
 function unitHasEffectType(unit, effectType) {
+  if (!unit) return false;
+  if (isUnitCenterSilenced(unit)) return false;
+  if (isUnitFullySilenced(unit)) return false;
   return getUnitMeta(unit)?.effect_type === effectType;
 }
 
 function unitHasShadowReturnEffect(unit) {
+  if (!unit) return false;
+  if (isUnitCenterSilenced(unit)) return false;
+  if (isUnitFullySilenced(unit)) return false;
   const effectType = getUnitMeta(unit)?.effect_type;
   return effectType === 'return_to_home_row_after_attack' || effectType === 'return_and_redeploy_full_heal';
 }
@@ -5647,6 +6083,8 @@ function getPlayerFieldEffectType(playerKey) {
 }
 
 function playerHasFieldEffect(playerKey, effectType) {
+  const opponent = getOpponent(playerKey);
+  if (getPlayerState(opponent)?.negateEnemyFieldUntilOwnTurnStart) return false;
   return getPlayerFieldEffectType(playerKey) === effectType;
 }
 
@@ -5677,8 +6115,13 @@ function hasAdjacentUnitOwnedBy(centerIndex, ownerKey) {
     });
 }
 
-function currentPlayerCannotAttackAfterMove() {
-  return !!(matchState.phase === 'battle' && matchState.turnState?.moved && isGlobalFieldEffectActive('field_no_attack_after_move'));
+function currentPlayerCannotAttackAfterMove(unit = null) {
+  if (!(matchState.phase === 'battle' && matchState.turnState?.moved)) return false;
+  const actingPlayer = matchState.currentPlayer;
+  const ownFieldBlocks = playerHasFieldEffect(actingPlayer, 'field_no_attack_after_move');
+  const enemyFieldBlocks = playerHasFieldEffect(getOpponent(actingPlayer), 'field_no_attack_after_move')
+    && !(unit && unitIgnoresEnemyFieldEffects(unit));
+  return !!(ownFieldBlocks || enemyFieldBlocks);
 }
 
 function isOffensiveItemCard(card) {
@@ -5694,19 +6137,26 @@ function isFogProtectedTargetForItem(card, attackerPlayerKey, targetIndex) {
   return !hasAdjacentUnitOwnedBy(targetIndex, attackerPlayerKey);
 }
 
-function getFieldAttackBonus(playerKey, boardIndex) {
-  const fieldCard = getPlayerFieldCard(playerKey);
+function getFieldAttackBonus(unit, boardIndex) {
+  if (!unit) return 0;
+  if (isEnemyCenterFieldBuffHealNegated(unit, boardIndex)) return 0;
+  const playerKey = unit.owner;
+  const ownField = getPlayerFieldCard(playerKey);
   let bonus = 0;
-  if (fieldCard?.effect_type === 'field_center_ally_atk_plus_1' && isPointZone(boardIndex)) bonus += 1;
-  if (fieldCard?.effect_type === 'field_center_ally_atk_plus_2' && isPointZone(boardIndex)) bonus += 2;
-  if (fieldCard?.effect_type === 'field_center_ally_guard_1_atk_plus_1' && isPointZone(boardIndex)) bonus += 1;
-  bonus += countActiveFieldEffects('field_all_atk_plus_1');
+  if (ownField?.effect_type === 'field_center_ally_atk_plus_1' && isPointZone(boardIndex)) bonus += 1;
+  if (ownField?.effect_type === 'field_center_ally_atk_plus_2' && isPointZone(boardIndex)) bonus += 2;
+  if (ownField?.effect_type === 'field_center_ally_guard_1_atk_plus_1' && isPointZone(boardIndex)) bonus += 1;
+  if (playerHasFieldEffect(playerKey, 'field_all_atk_plus_1')) bonus += 1;
+  if (playerHasFieldEffect(getOpponent(playerKey), 'field_all_atk_plus_1') && !unitIgnoresEnemyFieldEffects(unit)) bonus += 1;
   return bonus;
 }
 
 function getEffectiveAtk(unit, boardIndex) {
   if (!unit) return 0;
-  return Math.max(0, Number(unit.atk || 0) + Number(unit.tempAtkBuff || 0) + getFieldAttackBonus(unit.owner, boardIndex) + getConditionalAttackBonus(unit, boardIndex));
+  const tempAtkBuff = isUnitBuffsAndHealNegated(unit) ? 0 : Number(unit.tempAtkBuff || 0);
+  const fieldBonus = isUnitBuffsAndHealNegated(unit) ? 0 : getFieldAttackBonus(unit, boardIndex);
+  const conditionalBonus = isUnitBuffsAndHealNegated(unit) ? 0 : getConditionalAttackBonus(unit, boardIndex);
+  return Math.max(0, Number(unit.atk || 0) + tempAtkBuff + fieldBonus + conditionalBonus);
 }
 
 function getEffectiveMove(unit, boardIndex = null) {
@@ -5722,7 +6172,17 @@ function getRoyalCommandAttackBonus(attacker) {
 }
 
 function getAttackDamageAgainst(attacker, attackerIndex, defender, defenderIndex) {
-  return Math.max(0, getEffectiveAtk(attacker, attackerIndex) + getTargetedAttackBonus(attacker, attackerIndex, defender, defenderIndex) + getRoyalCommandAttackBonus(attacker));
+  const targetedBonus = isUnitBuffsAndHealNegated(attacker) ? 0 : getTargetedAttackBonus(attacker, attackerIndex, defender, defenderIndex);
+  const royalBonus = isUnitBuffsAndHealNegated(attacker) ? 0 : getRoyalCommandAttackBonus(attacker);
+  return Math.max(0, getEffectiveAtk(attacker, attackerIndex) + targetedBonus + royalBonus);
+}
+
+function shouldAttackIgnoreReduction(attacker, attackerIndex, defender, defenderIndex) {
+  if (!attacker || !defender || isUnitCenterSilenced(attacker, attackerIndex)) return false;
+  if (unitHasEffectType(attacker, 'atk_plus_1_vs_buffed_or_reduced_enemy_and_ignore_reduction') && targetHasAtkBuffOrReduction(defender, defenderIndex)) return true;
+  if (unitHasEffectType(attacker, 'ignore_reduction_vs_center_enemy_and_atk_plus_1_if_field_buffed') && isPointZone(defenderIndex)) return true;
+  if (unitHasEffectType(attacker, 'ignore_enemy_field_effects_self_and_center_aura_negate_enemy_field_buffs_heal_and_ignore_reduction_vs_center') && isPointZone(defenderIndex)) return true;
+  return false;
 }
 
 function getAttackLimitForUnit(unit) {
@@ -5734,6 +6194,7 @@ function clearTemporaryEffects(playerKey) {
     if (!unit || unit.owner !== playerKey) continue;
     unit.tempAtkBuff = 0;
     unit.tempMoveBuff = 0;
+    unit.nextAttackAppliesNoHealNoRevive = false;
   }
 }
 
@@ -5850,6 +6311,11 @@ function clearExpiredStartOfTurnEffects(playerKey) {
     player.teamDamageReductionExpiresOnOwnTurnStart = false;
     addLog(`${PLAYER_LABEL[playerKey]} の「防壁展開」の効果が終了しました`);
   }
+  if (player.negateEnemyFieldUntilOwnTurnStart) {
+    player.negateEnemyFieldUntilOwnTurnStart = false;
+    addLog(`${PLAYER_LABEL[playerKey]} の「幽灯の仮面」の効果が終了しました`);
+  }
+  clearExpiredUnitStatusEffectsForPlayer(playerKey);
 }
 
 function applyRoundEndFieldEffects() {
@@ -5869,6 +6335,7 @@ function applyRoundEndFieldEffects() {
     targets.forEach((targetIndex) => {
       const targetUnit = matchState.board[targetIndex];
       if (!targetUnit) return;
+      if (targetUnit.owner !== ownerKey && unitIgnoresEnemyFieldEffects(targetUnit)) return;
       const creditPlayerKey = targetUnit.owner === ownerKey ? null : ownerKey;
       applyDamageToIndex(targetIndex, 1, `環境カード「${fieldCard?.card_name || '???'}」が`, { creditPlayerKey });
     });
@@ -5887,8 +6354,8 @@ function hasLivingOrPendingRevive(playerKey) {
 
 function getItemTargetMode(card) {
   if (!card) return 'none';
-  if (['damage_single_1', 'damage_single_2', 'disable_attack_next_round', 'stun_single_1_turn', 'destroy_single', 'destroy_single_no_revive'].includes(card.effect_type)) return 'enemy';
-  if (['heal_single_2', 'full_heal_single', 'heal_single_3_atk_up_turn_1', 'buff_move_atk_turn_1', 'shield_single_2_once', 'move_twice_single', 'royal_command_single'].includes(card.effect_type)) return 'ally';
+  if (['damage_single_1', 'damage_single_2', 'disable_attack_next_round', 'stun_single_1_turn', 'destroy_single', 'destroy_single_no_revive', 'negate_buffs_and_heal_until_next_opponent_round', 'silence_and_disable_attack_while_in_center_until_next_opponent_round', 'center_silence_and_negate_buffs_heal_until_next_opponent_round'].includes(card.effect_type)) return 'enemy';
+  if (['heal_single_2', 'full_heal_single', 'heal_single_3_atk_up_turn_1', 'buff_move_atk_turn_1', 'shield_single_2_once', 'move_twice_single', 'royal_command_single', 'untargetable_by_enemy_items_turn_1', 'mark_attack_target_no_heal_no_revive_until_next_opponent_round', 'negate_next_destroy_or_stun_or_disable_attack_once', 'heal_2_and_cleanse_one_status'].includes(card.effect_type)) return 'ally';
   if (['damage_aoe_target_radius_1'].includes(card.effect_type)) return 'any';
   return 'none';
 }
@@ -5904,6 +6371,9 @@ function getItemSelectableTargets(card, playerKey) {
       if (mode === 'ally') return unit.owner === playerKey;
       if (mode === 'enemy') {
         if (unit.owner === playerKey) return false;
+        if (isUnitUntargetableByEnemyItems(unit, index)) return false;
+        if (card.effect_type === 'center_silence_and_negate_buffs_heal_until_next_opponent_round' && !isPointZone(index)) return false;
+        if (card.effect_type === 'negate_buffs_and_heal_until_next_opponent_round' && unit.owner === playerKey) return false;
         if (card.effect_type === 'disable_attack_next_round') {
           return !isFogProtectedTargetForItem(card, playerKey, index);
         }
@@ -5911,6 +6381,7 @@ function getItemSelectableTargets(card, playerKey) {
       }
       if (mode === 'any') {
         if (unit.owner === playerKey) return true;
+        if (isUnitUntargetableByEnemyItems(unit, index) && isOffensiveItemCard(card)) return false;
         return !isFogProtectedTargetForItem(card, playerKey, index);
       }
       return false;
@@ -5935,11 +6406,17 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
   const ignoreReduction = !!options.ignoreReduction;
   const hasExplicitCredit = Object.prototype.hasOwnProperty.call(options, 'creditPlayerKey');
   const creditPlayerKey = hasExplicitCredit ? options.creditPlayerKey : matchState.currentPlayer;
-  const reductionParts = ignoreReduction ? [] : getUnitDamageReductionParts(defender, targetIndex, { attacker: options.attacker || null });
+  const reductionParts = ignoreReduction ? [] : getUnitDamageReductionParts(defender, targetIndex, { attacker: options.attacker || null, sourceType: options.sourceType || '' });
   const totalReduction = reductionParts.reduce((sum, part) => sum + Number(part.value || 0), 0);
   const requestedDamage = Math.max(0, Number(damage || 0));
   const reduced = ignoreReduction ? 0 : Math.min(requestedDamage, totalReduction);
   const actualDamage = ignoreReduction ? requestedDamage : Math.max(0, requestedDamage - totalReduction);
+  const applyNoHealNoReviveUntilTurnStartOf = actualDamage > 0 && options.applyNoHealNoReviveUntilTurnStartOf
+    ? String(options.applyNoHealNoReviveUntilTurnStartOf)
+    : '';
+  if (applyNoHealNoReviveUntilTurnStartOf) {
+    defender.noHealNoReviveUntilTurnStartOf = applyNoHealNoReviveUntilTurnStartOf;
+  }
 
   if (ignoreReduction) {
     addLog(`${sourceLabel} ${defender.name} に軽減無視で ${actualDamage} ダメージ`);
@@ -5974,7 +6451,11 @@ function applyDamageToIndex(targetIndex, damage, sourceLabel, options = {}) {
     }
     if (!options.suppressDefeatSfx) playSfx('defeat');
     addLog(`${defender.name} が撃破されました`);
-    if (!options.noRevive) queueUnitRevive(defender);
+    if (!options.noRevive && !unitHasNoHealNoRevive(defender)) {
+      queueUnitRevive(defender);
+    } else if (!options.noRevive && unitHasEffectType(defender, 'revive_next_turn_from_base')) {
+      addLog(`${defender.name} は復活できません`);
+    }
     return { defeated: true, damage: actualDamage, reduced, blocked: false };
   }
   addLog(`${defender.name} の残りHPは ${defender.currentHp}`);
@@ -6002,6 +6483,9 @@ function applyAttackDamageToIndex(attacker, targetIndex, damage, options = {}) {
     const redirectOptions = Object.prototype.hasOwnProperty.call(options, 'creditPlayerKey')
       ? { ...options }
       : { ...options, creditPlayerKey: attacker.owner };
+    if (typeof options.attackerIndex === 'number' && shouldAttackIgnoreReduction(attacker, options.attackerIndex, kingCommander.unit, kingCommander.index)) {
+      redirectOptions.ignoreReduction = true;
+    }
     delete redirectOptions.attackerIndex;
     addLog(`${kingCommander.unit.name} が ${defender.name} への攻撃を引き受けます`);
     const result = applyDamageToIndex(kingCommander.index, redirectedDamage, `${PLAYER_LABEL[attacker.owner]} の ${attacker.name} が`, { ...redirectOptions, attacker });
@@ -6030,6 +6514,9 @@ function applyAttackDamageToIndex(attacker, targetIndex, damage, options = {}) {
   const damageOptions = Object.prototype.hasOwnProperty.call(options, 'creditPlayerKey')
     ? { ...options }
     : { ...options, creditPlayerKey: attacker.owner };
+  if (typeof options.attackerIndex === 'number' && shouldAttackIgnoreReduction(attacker, options.attackerIndex, defender, targetIndex)) {
+    damageOptions.ignoreReduction = true;
+  }
   delete damageOptions.attackerIndex;
   const result = applyDamageToIndex(targetIndex, damage, `${PLAYER_LABEL[attacker.owner]} の ${attacker.name} が`, { ...damageOptions, attacker });
   return { ...result, resolvedTargetIndex: targetIndex, visualEntry: defenderVisualEntry };
@@ -6044,36 +6531,45 @@ function applyItemEffect(card, playerKey) {
   switch (card.effect_type) {
     case 'heal_single_2': {
       if (!targetUnit) return false;
-      const before = targetUnit.currentHp;
       const amount = 2 + effectBoost;
-      targetUnit.currentHp = Math.min(targetUnit.maxHp, targetUnit.currentHp + amount);
-      const healedAmount = targetUnit.currentHp - before;
+      const result = healUnitForEffect(targetUnit, amount);
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
-      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} を ${healedAmount} 回復しました${effectBoost > 0 ? '（補給路で +1 強化）' : ''}`);
-      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount, impacts: resolvedIndex >= 0 && healedAmount > 0 ? [{ index: resolvedIndex, kind: 'heal', amount: healedAmount }] : [] });
+      if (result.blocked) {
+        addLog(`${actorLabel}: ${card.card_name} は ${targetUnit.name} に使われましたが、回復は無効化されました`);
+      } else {
+        addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} を ${result.healed} 回復しました${effectBoost > 0 ? '（補給路で +1 強化）' : ''}`);
+      }
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount, impacts: resolvedIndex >= 0 && result.healed > 0 ? [{ index: resolvedIndex, kind: 'heal', amount: result.healed }] : [] });
     }
     case 'full_heal_single': {
       if (!targetUnit) return false;
-      const before = targetUnit.currentHp;
-      targetUnit.currentHp = targetUnit.maxHp;
-      const healedAmount = targetUnit.currentHp - before;
+      const amount = Math.max(0, Number(targetUnit.maxHp || 0) - Number(targetUnit.currentHp || 0));
+      const result = healUnitForEffect(targetUnit, amount);
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
-      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} の HP を全回復しました（+${healedAmount}）`);
-      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount: healedAmount, impacts: resolvedIndex >= 0 && healedAmount > 0 ? [{ index: resolvedIndex, kind: 'heal', amount: healedAmount }] : [] });
+      if (result.blocked) {
+        addLog(`${actorLabel}: ${card.card_name} は ${targetUnit.name} に使われましたが、回復は無効化されました`);
+      } else {
+        addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} の HP を全回復しました（+${result.healed}）`);
+      }
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount: result.healed, impacts: resolvedIndex >= 0 && result.healed > 0 ? [{ index: resolvedIndex, kind: 'heal', amount: result.healed }] : [] });
     }
     case 'heal_single_3_atk_up_turn_1': {
       if (!targetUnit) return false;
-      const before = targetUnit.currentHp;
-      targetUnit.currentHp = Math.min(targetUnit.maxHp, targetUnit.currentHp + 3);
-      const healedAmount = targetUnit.currentHp - before;
-      targetUnit.tempAtkBuff = Number(targetUnit.tempAtkBuff || 0) + 1;
+      const healResult = healUnitForEffect(targetUnit, 3);
+      if (!isUnitBuffsAndHealNegated(targetUnit)) {
+        targetUnit.tempAtkBuff = Number(targetUnit.tempAtkBuff || 0) + 1;
+      }
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
-      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} を ${healedAmount} 回復し、この手番の ATK を +1 しました`);
+      if (healResult.blocked) {
+        addLog(`${actorLabel}: ${card.card_name} は ${targetUnit.name} に使われましたが、回復は無効化されました`);
+      } else {
+        addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} を ${healResult.healed} 回復し、この手番の ATK を +1 しました`);
+      }
       return success({
         targets: resolvedIndex >= 0 ? [resolvedIndex] : [],
-        amount: healedAmount,
+        amount: healResult.healed,
         impacts: resolvedIndex >= 0 ? [
-          ...(healedAmount > 0 ? [{ index: resolvedIndex, kind: 'heal', amount: healedAmount }] : []),
+          ...(healResult.healed > 0 ? [{ index: resolvedIndex, kind: 'heal', amount: healResult.healed }] : []),
           { index: resolvedIndex, kind: 'buff', label: 'BLOOD' },
         ] : [],
       });
@@ -6084,9 +6580,8 @@ function applyItemEffect(card, playerKey) {
       const targets = [];
       const impacts = [];
       allies.forEach((unit) => {
-        const before = unit.currentHp;
-        unit.currentHp = Math.min(unit.maxHp, unit.currentHp + 1 + effectBoost);
-        const healedAmount = unit.currentHp - before;
+        const healResult = healUnitForEffect(unit, 1 + effectBoost);
+        const healedAmount = healResult.healed;
         healed += healedAmount;
         const idx = findUnitIndexByIdOwned(unit.instanceId, unit.owner);
         if (idx >= 0) targets.push(idx);
@@ -6098,19 +6593,26 @@ function applyItemEffect(card, playerKey) {
     case 'damage_single_1': {
       if (targetIndex == null) return false;
       const visualEntry = createCombatVisualEntry(matchState.board[targetIndex], targetIndex);
-      const result = applyDamageToIndex(targetIndex, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`, { suppressDefeatSfx: true });
+      const result = applyDamageToIndex(targetIndex, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`, { suppressDefeatSfx: true, sourceType: 'enemy_item' });
       return success({ targets: [targetIndex], amount: Number(result.damage || 0), defeated: !!result.defeated, impacts: [{ index: targetIndex, kind: result.blocked ? 'guard' : 'damage', amount: Number(result.damage || 0), reduced: Number(result.reduced || 0), blocked: !!result.blocked, defeated: !!result.defeated, visualEntry, label: result.blocked ? 'GUARD' : undefined }] });
     }
     case 'damage_single_2': {
       if (targetIndex == null) return false;
       const visualEntry = createCombatVisualEntry(matchState.board[targetIndex], targetIndex);
-      const result = applyDamageToIndex(targetIndex, 2 + effectBoost, `${actorLabel}: ${card.card_name} で`, { suppressDefeatSfx: true });
+      const result = applyDamageToIndex(targetIndex, 2 + effectBoost, `${actorLabel}: ${card.card_name} で`, { suppressDefeatSfx: true, sourceType: 'enemy_item' });
       return success({ targets: [targetIndex], amount: Number(result.damage || 0), defeated: !!result.defeated, impacts: [{ index: targetIndex, kind: result.blocked ? 'guard' : 'damage', amount: Number(result.damage || 0), reduced: Number(result.reduced || 0), blocked: !!result.blocked, defeated: !!result.defeated, visualEntry, label: result.blocked ? 'GUARD' : undefined }] });
     }
     case 'destroy_single': {
       if (targetIndex == null) return false;
       const destroyedUnit = matchState.board[targetIndex];
       if (!destroyedUnit) return false;
+      if (isUnitProtectedFromEnemyItemDestroy(destroyedUnit, targetIndex)) {
+        addLog(`${actorLabel}: ${card.card_name} は ${destroyedUnit.name} に使われましたが、破壊を防がれました`);
+        return success({ targets: [targetIndex], impacts: [{ index: targetIndex, kind: 'buff', label: 'GUARD' }] });
+      }
+      if (tryConsumeDestroyStunDisableProtection(destroyedUnit, targetIndex, 'destroy', 'enemy_item', `${actorLabel}: ${card.card_name} により `)) {
+        return success({ targets: [targetIndex], impacts: [{ index: targetIndex, kind: 'buff', label: 'WARD' }] });
+      }
       const visualEntry = createCombatVisualEntry(destroyedUnit, targetIndex);
       const removedHp = Math.max(1, Number(destroyedUnit.currentHp || 1));
       matchState.board[targetIndex] = null;
@@ -6124,6 +6626,13 @@ function applyItemEffect(card, playerKey) {
       if (targetIndex == null) return false;
       const destroyedUnit = matchState.board[targetIndex];
       if (!destroyedUnit) return false;
+      if (isUnitProtectedFromEnemyItemDestroy(destroyedUnit, targetIndex)) {
+        addLog(`${actorLabel}: ${card.card_name} は ${destroyedUnit.name} に使われましたが、破壊を防がれました`);
+        return success({ targets: [targetIndex], impacts: [{ index: targetIndex, kind: 'buff', label: 'GUARD' }] });
+      }
+      if (tryConsumeDestroyStunDisableProtection(destroyedUnit, targetIndex, 'destroy', 'enemy_item', `${actorLabel}: ${card.card_name} により `)) {
+        return success({ targets: [targetIndex], impacts: [{ index: targetIndex, kind: 'buff', label: 'WARD' }] });
+      }
       const visualEntry = createCombatVisualEntry(destroyedUnit, targetIndex);
       const removedHp = Math.max(1, Number(destroyedUnit.currentHp || 1));
       matchState.board[targetIndex] = null;
@@ -6134,15 +6643,25 @@ function applyItemEffect(card, playerKey) {
     }
     case 'disable_attack_next_round': {
       if (!targetUnit) return false;
-      targetUnit.skipAttackTurns = Math.max(targetUnit.skipAttackTurns || 0, 1);
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
+      if (tryConsumeDestroyStunDisableProtection(targetUnit, resolvedIndex, 'disable_attack', 'enemy_item', `${actorLabel}: ${card.card_name} により `)) {
+        return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'WARD' }] : [] });
+      }
+      targetUnit.skipAttackTurns = Math.max(targetUnit.skipAttackTurns || 0, 1);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次の自身の手番で攻撃不可になります`);
       return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'SMOKE' }] : [] });
     }
     case 'stun_single_1_turn': {
       if (!targetUnit) return false;
-      targetUnit.skipActionTurns = Math.max(Number(targetUnit.skipActionTurns || 0), 1);
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
+      if (isUnitProtectedFromEnemyItemStun(targetUnit, resolvedIndex)) {
+        addLog(`${actorLabel}: ${card.card_name} は ${targetUnit.name} に使われましたが、行動不能を防がれました`);
+        return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'GUARD' }] : [] });
+      }
+      if (tryConsumeDestroyStunDisableProtection(targetUnit, resolvedIndex, 'stun', 'enemy_item', `${actorLabel}: ${card.card_name} により `)) {
+        return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'WARD' }] : [] });
+      }
+      targetUnit.skipActionTurns = Math.max(Number(targetUnit.skipActionTurns || 0), 1);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次の自身の手番で行動できなくなります`);
       return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'FREEZE' }] : [] });
     }
@@ -6162,6 +6681,18 @@ function applyItemEffect(card, playerKey) {
       const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
       addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次に受けるダメージを ${amount} 軽減します`);
       return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], amount, impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'GUARD' }] : [] });
+    }
+    case 'heal_2_and_cleanse_one_status': {
+      if (!targetUnit || targetUnit.owner !== playerKey) return false;
+      const healResult = healUnitForEffect(targetUnit, 2);
+      const clearedKind = clearOneCleansableStatus(targetUnit);
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
+      const parts = [];
+      if (healResult.healed > 0) parts.push(`HPを ${healResult.healed} 回復`);
+      if (healResult.blocked) parts.push('HP回復は無効');
+      if (clearedKind) parts.push(`${getCleanseStatusLabel(clearedKind)} を解除`);
+      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name}${parts.length ? ` は ${parts.join('、')} しました` : ' に変化はありませんでした'}`);
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'CLEAN' }] : [] });
     }
     case 'move_twice_single': {
       if (!targetUnit || targetUnit.owner !== playerKey) return false;
@@ -6204,10 +6735,61 @@ function applyItemEffect(card, playerKey) {
       addLog(`${actorLabel}: ${card.card_name} が ${formatCellLabel(targetIndex)} を中心に炸裂しました${effectBoost > 0 ? '（補給路で +1 強化）' : ''}`);
       affected.forEach((idx) => {
         const visualEntry = createCombatVisualEntry(matchState.board[idx], idx);
-        const result = applyDamageToIndex(idx, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`, { suppressDefeatSfx: true });
+        const result = applyDamageToIndex(idx, 1 + effectBoost, `${actorLabel}: ${card.card_name} で`, { suppressDefeatSfx: true, sourceType: 'enemy_item' });
         impacts.push({ index: idx, kind: result.blocked ? 'guard' : 'damage', amount: Number(result.damage || 0), reduced: Number(result.reduced || 0), blocked: !!result.blocked, defeated: !!result.defeated, visualEntry, label: result.blocked ? 'GUARD' : undefined });
       });
       return success({ targets: affected, centerIndex: targetIndex, amount: 1 + effectBoost, impacts });
+    }
+    case 'negate_enemy_field_until_next_opponent_round': {
+      const player = getPlayerState(playerKey);
+      if (!player) return false;
+      player.negateEnemyFieldUntilOwnTurnStart = true;
+      const enemyField = getPlayerFieldCard(getOpponent(playerKey));
+      addLog(`${actorLabel}: ${card.card_name} により、${enemyField ? `敵の環境カード「${enemyField.card_name}」` : '敵の環境カード'}の効果を次の相手ラウンド終了時まで無効にします`);
+      return success({ targets: [] });
+    }
+    case 'untargetable_by_enemy_items_turn_1': {
+      if (!targetUnit) return false;
+      targetUnit.untargetableByEnemyItemsUntilTurnStartOf = playerKey;
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
+      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次の相手ラウンド終了時まで、敵アイテムの対象になりません`);
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'SAFE' }] : [] });
+    }
+    case 'negate_next_destroy_or_stun_or_disable_attack_once': {
+      if (!targetUnit) return false;
+      targetUnit.negateNextDestroyStunDisableAttackUntilTurnStartOf = playerKey;
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
+      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次の相手ラウンド終了時まで、次に受ける破壊・行動不能・攻撃不能のいずれか1つを無効化します`);
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'WARD' }] : [] });
+    }
+    case 'mark_attack_target_no_heal_no_revive_until_next_opponent_round': {
+      if (!targetUnit) return false;
+      targetUnit.nextAttackAppliesNoHealNoRevive = true;
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
+      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} の次の攻撃でダメージを受けた敵は、次の相手ラウンド終了時までHPを回復できず、倒された場合は復活できません`);
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'CURSE' }] : [] });
+    }
+    case 'silence_and_disable_attack_while_in_center_until_next_opponent_round': {
+      if (!targetUnit) return false;
+      targetUnit.centerSilenceDisableAttackUntilTurnStartOf = playerKey;
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
+      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次の相手ラウンド終了時まで、中央9マスにいる間は効果を失い攻撃できません`);
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'SEAL' }] : [] });
+    }
+    case 'center_silence_and_negate_buffs_heal_until_next_opponent_round': {
+      if (!targetUnit) return false;
+      targetUnit.negateBuffsAndHealUntilTurnStartOf = playerKey;
+      targetUnit.fullSilenceUntilTurnStartOf = playerKey;
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
+      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次の相手ラウンド終了時まで、攻撃力上昇・ダメージ軽減・HP回復を受けず、カード効果を失います`);
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'SEAL' }] : [] });
+    }
+    case 'negate_buffs_and_heal_until_next_opponent_round': {
+      if (!targetUnit) return false;
+      targetUnit.negateBuffsAndHealUntilTurnStartOf = playerKey;
+      const resolvedIndex = findUnitIndexByIdOwned(targetUnit.instanceId, targetUnit.owner);
+      addLog(`${actorLabel}: ${card.card_name} で ${targetUnit.name} は次の相手ラウンド終了時まで、攻撃力上昇・ダメージ軽減・HP回復を受けません`);
+      return success({ targets: resolvedIndex >= 0 ? [resolvedIndex] : [], impacts: resolvedIndex >= 0 ? [{ index: resolvedIndex, kind: 'buff', label: 'SEAL' }] : [] });
     }
     default:
       addLog(`${actorLabel}: アイテム「${card.card_name}」を使用しました（この効果はまだ手動処理です）`);
@@ -6276,15 +6858,25 @@ function getReachableMoveCells(instanceId) {
     }
   }
 
+  if (unitHasEffectType(unit, 'swap_with_adjacent_ally_and_cleanse_one_adjacent_status_on_swap', startIndex)) {
+    getOrthogonalNeighbors(startIndex).forEach((idx) => {
+      const ally = matchState.board[idx];
+      if (ally && ally.owner === unit.owner && ally.instanceId !== unit.instanceId && !result.includes(idx)) {
+        result.push(idx);
+      }
+    });
+  }
+
   return result;
 }
 
 function getAttackTargets(instanceId) {
-  if (matchState.phase !== 'battle' || currentPlayerCannotAttackAfterMove()) return [];
+  if (matchState.phase !== 'battle') return [];
   const startIndex = findUnitIndexById(instanceId);
   if (startIndex < 0) return [];
   const unit = matchState.board[startIndex];
-  if (!unit || unit.owner !== matchState.currentPlayer || unit.actionLocked || unit.attackLocked) return [];
+  if (!unit || unit.owner !== matchState.currentPlayer || unit.actionLocked || unit.attackLocked || isUnitCenterSilenced(unit, startIndex)) return [];
+  if (currentPlayerCannotAttackAfterMove(unit)) return [];
 
   const turnState = matchState.turnState || {};
   const attackUnitId = turnState.attackUnitId || null;
@@ -6312,14 +6904,10 @@ function getAttackTargets(instanceId) {
       [[row, col + 1], [row, col + 2]],
     ];
     lines.forEach((line) => {
-      line.forEach(([r, c], stepIndex) => {
+      line.forEach(([r, c]) => {
         if (r < 0 || r > 4 || c < 0 || c > 4) return;
         const idx = coordToIndex(r, c);
-        const targetUnit = matchState.board[idx];
-        if (!targetUnit || targetUnit.owner === matchState.currentPlayer) return;
-        const distance = stepIndex + 1;
-        if (distance >= 2 && playerHasFieldEffect(targetUnit.owner, 'field_range_limit_adjacent_only')) return;
-        targetSet.add(idx);
+        if (matchState.board[idx] && matchState.board[idx].owner !== matchState.currentPlayer) targetSet.add(idx);
       });
     });
   }
@@ -6328,15 +6916,17 @@ function getAttackTargets(instanceId) {
     for (let targetCol = 0; targetCol < 5; targetCol += 1) {
       if (targetCol === col) continue;
       const idx = coordToIndex(row, targetCol);
-      const targetUnit = matchState.board[idx];
-      if (!targetUnit || targetUnit.owner === matchState.currentPlayer) continue;
-      const distance = Math.abs(targetCol - col);
-      if (distance >= 2 && playerHasFieldEffect(targetUnit.owner, 'field_range_limit_adjacent_only')) continue;
-      targetSet.add(idx);
+      if (matchState.board[idx] && matchState.board[idx].owner !== matchState.currentPlayer) {
+        targetSet.add(idx);
+      }
     }
   }
 
-  return [...targetSet];
+  const enemyFogActive = playerHasFieldEffect(getOpponent(unit.owner), 'field_range_limit_adjacent_only')
+    && !unitIgnoresEnemyFieldEffects(unit);
+  if (!enemyFogActive) return [...targetSet];
+  const adjacent = new Set(getOrthogonalNeighbors(startIndex));
+  return [...targetSet].filter((index) => adjacent.has(index));
 }
 
 function getSelectedUnit() {
@@ -6521,7 +7111,7 @@ function updateSelectionInfo() {
     const extraAttackText = matchState.turnState?.attackUnitId === selectedUnit.instanceId && unitHasEffectType(selectedUnit, 'double_attack') && Number(matchState.turnState.attackCount || 0) > 0 && Number(matchState.turnState.attackCount || 0) < getAttackLimitForUnit(selectedUnit)
       ? ` / 神速剣士: 残り${getAttackLimitForUnit(selectedUnit) - Number(matchState.turnState.attackCount || 0)}回攻撃可`
       : '';
-    setSelectionInfoText(`${selectedUnit.name} を選択中 / HP ${selectedUnit.currentHp}/${selectedUnit.maxHp} / ATK ${getEffectiveAtk(selectedUnit, idx)} / MOVE ${getEffectiveMove(selectedUnit, idx)}${selectedUnit.actionLocked ? ' / この手番は行動不可' : (selectedUnit.attackLocked ? ' / この手番は攻撃不可' : '')}${cannotMoveByEffect(selectedUnit) ? ' / このユニットは移動不可' : ''}${currentPlayerCannotAttackAfterMove() ? ' / 暴風域: 移動後は攻撃不可' : ''}${matchState.turnState?.acceleratedUnitId === selectedUnit.instanceId && matchState.turnState.acceleratedMovesRemaining > 0 ? ` / ${getExtraMoveSourceName(selectedUnit.instanceId)}: 残り${matchState.turnState.acceleratedMovesRemaining}回移動可` : ''}${matchState.turnState?.royalCommandUnitId === selectedUnit.instanceId ? (matchState.turnState.royalCommandAttackReady ? ' / 王冠の勅命: 次の攻撃+1待機中' : ' / 王冠の勅命: 移動後の初回攻撃+1') : ''}${extraAttackText}`);
+    setSelectionInfoText(`${selectedUnit.name} を選択中 / HP ${selectedUnit.currentHp}/${selectedUnit.maxHp} / ATK ${getEffectiveAtk(selectedUnit, idx)} / MOVE ${getEffectiveMove(selectedUnit, idx)}${selectedUnit.actionLocked ? ' / この手番は行動不可' : (selectedUnit.attackLocked ? ' / この手番は攻撃不可' : '')}${cannotMoveByEffect(selectedUnit) ? ' / このユニットは移動不可' : ''}${currentPlayerCannotAttackAfterMove(selectedUnit) ? ' / 暴風域: 移動後は攻撃不可' : ''}${matchState.turnState?.acceleratedUnitId === selectedUnit.instanceId && matchState.turnState.acceleratedMovesRemaining > 0 ? ` / ${getExtraMoveSourceName(selectedUnit.instanceId)}: 残り${matchState.turnState.acceleratedMovesRemaining}回移動可` : ''}${matchState.turnState?.royalCommandUnitId === selectedUnit.instanceId ? (matchState.turnState.royalCommandAttackReady ? ' / 王冠の勅命: 次の攻撃+1待機中' : ' / 王冠の勅命: 移動後の初回攻撃+1') : ''}${extraAttackText}`);
     return;
   }
 
@@ -6745,6 +7335,7 @@ function renderPlayerPanels() {
 }
 
 function renderBoard() {
+  injectStatusBadgeStyles();
   const moveTargets = matchState.actionMode === 'move' && matchState.selectedUnitId ? getReachableMoveCells(matchState.selectedUnitId) : [];
   const attackTargets = matchState.actionMode === 'attack' && matchState.selectedUnitId ? getAttackTargets(matchState.selectedUnitId) : [];
   const postAttackMoveTargets = getPostAttackMoveUnitId() ? getPostAttackMoveCells(getPostAttackMoveUnitId()) : [];
@@ -6996,8 +7587,9 @@ function renderMatchMeta() {
       const hasAccel = matchState.turnState.acceleratedUnitId && matchState.turnState.acceleratedMovesRemaining > 0;
       const accelLabel = hasAccel ? getExtraMoveSourceName(matchState.turnState.acceleratedUnitId) : '加速術';
       const moveText = hasAccel ? `移動可能（${accelLabel}: 残り${matchState.turnState.acceleratedMovesRemaining}回）` : (matchState.turnState.moved ? '移動済み' : '移動可能');
+      const currentFieldCheckUnit = getCurrentUnitForFieldRestrictionCheck();
       let attackText = '攻撃可能';
-      if (currentPlayerCannotAttackAfterMove()) {
+      if (currentPlayerCannotAttackAfterMove(currentFieldCheckUnit)) {
         attackText = '暴風域により移動後は攻撃不可';
       } else if (matchState.turnState.attackUnitId) {
         const attackIndex = findUnitIndexById(matchState.turnState.attackUnitId);
@@ -7030,10 +7622,11 @@ function renderMatchMeta() {
   const roomAttackPending = roomSyncState.enabled && roomSyncState.pendingAttackRequest;
   const roomItemPending = roomSyncState.enabled && (roomSyncState.pendingItemUseRequest || roomSyncState.pendingFinishItemPhaseRequest || roomSyncState.pendingEndTurnRequest);
   const roomActionPending = roomMovePending || roomAttackPending || roomItemPending;
+  const currentFieldCheckUnit = getCurrentUnitForFieldRestrictionCheck();
   syncActionButtonsState({
     itemPhaseDoneDisabled: roomBattleLocked || roomActionPending || !itemWindowOpen || itemSelected || !!pendingAction,
     moveDisabled: roomBattleLocked || roomActionPending || !battleActive || itemWindowOpen || pendingRedeployActive || !!pendingAction || postAttackMoveActive,
-    attackDisabled: roomBattleLocked || roomActionPending || !battleActive || itemWindowOpen || pendingRedeployActive || !!pendingAction || postAttackMoveActive || currentPlayerCannotAttackAfterMove(),
+    attackDisabled: roomBattleLocked || roomActionPending || !battleActive || itemWindowOpen || pendingRedeployActive || !!pendingAction || postAttackMoveActive || currentPlayerCannotAttackAfterMove(currentFieldCheckUnit),
     endTurnDisabled: roomBattleLocked || roomActionPending || !battleActive || itemWindowOpen || pendingRedeployActive || !!pendingAction,
     clearDisabled: !matchState.active,
     confirmItemDisabled: roomBattleLocked || roomActionPending || !itemWindowOpen || !itemCanConfirm,
@@ -7103,6 +7696,7 @@ function beginTurn(playerKey) {
   clearExpiredStartOfTurnEffects(playerKey);
   matchState.turnState = { moved: false, movedUnitId: null, attacked: false, attackCount: 0, attackUnitId: null, itemWindowOpen: true, itemUsed: false, selectedItemCardId: null, selectedItemTargetIndex: null, pendingAction: null, acceleratedUnitId: null, acceleratedMovesRemaining: 0, royalCommandUnitId: null, royalCommandAttackReady: false, postAttackMoveUnitId: null, pendingRedeployCardId: null, pendingRedeployOwner: null };
   revivePendingUnitsForPlayer(playerKey);
+  applyFieldStartOfTurnEffects(playerKey);
   refreshTurnStatusForPlayer(playerKey);
   preparePendingRedeployForPlayer(playerKey);
   matchState.selectedUnitId = null;
@@ -7262,12 +7856,20 @@ function moveSelectedUnit(targetIndex) {
   if (!getReachableMoveCells(matchState.selectedUnitId).includes(targetIndex)) return;
 
   const unit = matchState.board[sourceIndex];
+  const targetUnit = matchState.board[targetIndex];
+  const isSwap = !!(targetUnit
+    && targetUnit.owner === unit.owner
+    && targetUnit.instanceId !== unit.instanceId
+    && unitHasEffectType(unit, 'swap_with_adjacent_ally_and_cleanse_one_adjacent_status_on_swap', sourceIndex)
+    && getOrthogonalNeighbors(sourceIndex).includes(targetIndex));
   setPendingAction({
     type: 'move',
     unitId: unit.instanceId,
     unitName: unit.name,
     sourceIndex,
     targetIndex,
+    isSwap,
+    swapTargetUnitId: isSwap ? targetUnit.instanceId : '',
     fromLabel: formatCellLabel(sourceIndex),
     toLabel: formatCellLabel(targetIndex),
   });
@@ -7279,8 +7881,15 @@ function applyPendingMove(pendingAction) {
   if (sourceIndex < 0) return;
   const unit = matchState.board[sourceIndex];
   if (!unit) return;
-  matchState.board[pendingAction.targetIndex] = unit;
-  matchState.board[sourceIndex] = null;
+  const targetUnit = matchState.board[pendingAction.targetIndex];
+  const isSwap = !!(pendingAction.isSwap && targetUnit && targetUnit.owner === unit.owner && targetUnit.instanceId !== unit.instanceId);
+  if (isSwap) {
+    matchState.board[sourceIndex] = targetUnit;
+    matchState.board[pendingAction.targetIndex] = unit;
+  } else {
+    matchState.board[pendingAction.targetIndex] = unit;
+    matchState.board[sourceIndex] = null;
+  }
 
   const acceleratedThisTurn = matchState.turnState?.acceleratedUnitId === unit.instanceId && matchState.turnState.acceleratedMovesRemaining > 0;
   const extraMoveSourceName = getExtraMoveSourceName(unit.instanceId);
@@ -7304,9 +7913,19 @@ function applyPendingMove(pendingAction) {
     matchState.turnState.moved = true;
   }
 
+  if (isSwap && unitHasEffectType(unit, 'swap_with_adjacent_ally_and_cleanse_one_adjacent_status_on_swap', pendingAction.targetIndex)) {
+    const cleanseTarget = chooseAdjacentAllyForSwapCleanse(pendingAction.targetIndex, unit.owner, unit.instanceId);
+    if (cleanseTarget?.unit) {
+      const clearedKind = clearOneCleansableStatus(cleanseTarget.unit);
+      if (clearedKind) {
+        addLog(`${unit.name} は天輝の細剣の効果で ${cleanseTarget.unit.name} の ${getCleanseStatusLabel(clearedKind)} を解除しました`);
+      }
+    }
+  }
+
   matchState.actionMode = null;
   clearPendingAction();
-  addLog(`${PLAYER_LABEL[unit.owner]} の ${unit.name} が ${pendingAction.fromLabel} から ${pendingAction.toLabel} へ移動しました`);
+  addLog(`${PLAYER_LABEL[unit.owner]} の ${unit.name} が ${pendingAction.fromLabel} から ${pendingAction.toLabel} へ${isSwap ? '位置を入れ替えました' : '移動しました'}`);
   playSfx('move');
   if (isGlobalFieldEffectActive('field_no_attack_after_move')) {
     addLog('環境カード「暴風域」により、移動したユニットはこの手番に攻撃できません');
@@ -7404,23 +8023,23 @@ function attackWithSelectedUnit(targetIndex) {
     targetIndex,
     targetName: defender.name,
     damage: getAttackDamageAgainst(attacker, sourceIndex, defender, targetIndex),
-    bonusText: attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, targetIndex, defender.owner) ? '背後攻撃 +1' : '',
+    bonusText: isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, targetIndex, defender.owner) ? '背後攻撃 +1' : '',
   };
 
-  if (attacker.cardId === 'RV-017') {
+  if (isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-017') {
     pending.previewText = `${defender.name} を攻撃し、同じ方向の2マス目に敵がいれば追加ダメージを与えます。よければ確定してください。`;
   } else if (unitHasEffectType(attacker, 'range_2')) {
     const distance = getLineIndicesFromAttack(sourceIndex, targetIndex, 2).indexOf(targetIndex) + 1;
     pending.previewText = distance >= 2
       ? `${defender.name} は2マス先の敵ですが、弓兵の効果で攻撃できます。よければ確定してください。`
       : `${defender.name} を攻撃します。よければ確定してください。`;
-  } else if (attacker.cardId === 'RV-031') {
+  } else if (isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-031') {
     pending.previewText = `${defender.name} を攻撃します。攻撃後、狂戦士は自身に1ダメージを受けます。よければ確定してください。`;
-  } else if (attacker.cardId === 'RV-033') {
+  } else if (isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-033') {
     pending.previewText = `${formatCellLabel(targetIndex)} 方向へ貫通攻撃します。1マス目と2マス目の敵に軽減無視ダメージを与えます。よければ確定してください。`;
-  } else if (attacker.cardId === 'RV-034' || unitHasEffectType(attacker, 'splash_adjacent_enemy_1_on_attack')) {
+  } else if ((isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-034') || unitHasEffectType(attacker, 'splash_adjacent_enemy_1_on_attack')) {
     pending.previewText = `${defender.name} を攻撃し、その対象に隣接する他の敵にも1ダメージを与えます。よければ確定してください。`;
-  } else if (attacker.cardId === 'RV-040') {
+  } else if (isUnitCardEffectActive(attacker) && attacker.cardId === 'RV-040') {
     pending.previewText = `${defender.name} を攻撃し、さらに炎魔剣士の周囲1マスにいる全ユニットへ1ダメージを与えます（敵味方両方）。よければ確定してください。`;
   } else if (unitHasEffectType(attacker, 'on_kill_permanent_atk_plus_1')) {
     pending.previewText = `${defender.name} を攻撃します。血王 ヴェインが敵を撃破すると、攻撃力が1永続で上昇します。よければ確定してください。`;
@@ -7448,15 +8067,22 @@ function applyPendingAttack(pendingAction) {
   const defender = matchState.board[pendingAction.targetIndex];
   if (!attacker || !defender || defender.owner === attacker.owner) return;
 
-  const backstabTriggered = attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, pendingAction.targetIndex, defender.owner);
+  const backstabTriggered = isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, pendingAction.targetIndex, defender.owner);
   const royalCommandAttackBoost = getRoyalCommandAttackBonus(attacker);
+  const markedAttackPrimed = !!attacker.nextAttackAppliesNoHealNoRevive;
+  const intrinsicNoHealOnDamage = unitHasEffectType(attacker, 'on_damage_apply_no_heal_until_next_opponent_round_and_no_revive_if_destroyed_plus_atk_1_vs_full_or_healed_enemy');
+  const applyNoHealNoReviveUntilTurnStartOf = (markedAttackPrimed || intrinsicNoHealOnDamage) ? attacker.owner : '';
+  let markedAttackConsumed = false;
   let defeatedByAttack = 0;
   const attackFxHits = [];
   const specialAttackFxQueue = [];
   let infernoSplashIndices = [];
   let shadowReturnIndex = null;
   const resolveAttackHit = (targetIndex, damage, options = {}) => {
-    const result = applyAttackDamageToIndex(attacker, targetIndex, damage, { ...options, attackerIndex: sourceIndex });
+    const attackOptions = { ...options, attackerIndex: sourceIndex };
+    if (applyNoHealNoReviveUntilTurnStartOf) attackOptions.applyNoHealNoReviveUntilTurnStartOf = applyNoHealNoReviveUntilTurnStartOf;
+    const result = applyAttackDamageToIndex(attacker, targetIndex, damage, attackOptions);
+    if (result.damage > 0 && markedAttackPrimed) markedAttackConsumed = true;
     if (result.defeated) defeatedByAttack += 1;
     const resolvedTargetIndex = Number.isInteger(result.resolvedTargetIndex) ? result.resolvedTargetIndex : targetIndex;
     attackFxHits.push({
@@ -7491,7 +8117,7 @@ function applyPendingAttack(pendingAction) {
     return result;
   };
 
-  if (attacker.cardId === 'RV-017') {
+  if (isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-017') {
     const line = getLineIndicesFromAttack(sourceIndex, pendingAction.targetIndex, 2);
     line.forEach((idx) => {
       const target = matchState.board[idx];
@@ -7499,7 +8125,7 @@ function applyPendingAttack(pendingAction) {
       const damage = getAttackDamageAgainst(attacker, sourceIndex, target, idx);
       resolveAttackHit(idx, damage);
     });
-  } else if (attacker.cardId === 'RV-033') {
+  } else if (isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-033') {
     const line = getLineIndicesFromAttack(sourceIndex, pendingAction.targetIndex, 2);
     line.forEach((idx) => {
       const target = matchState.board[idx];
@@ -7507,7 +8133,7 @@ function applyPendingAttack(pendingAction) {
       const damage = getEffectiveAtk(attacker, sourceIndex);
       resolveAttackHit(idx, damage, { ignoreReduction: true });
     });
-  } else if (attacker.cardId === 'RV-034' || unitHasEffectType(attacker, 'splash_adjacent_enemy_1_on_attack')) {
+  } else if ((isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-034') || unitHasEffectType(attacker, 'splash_adjacent_enemy_1_on_attack')) {
     const originalTargetIndex = pendingAction.targetIndex;
     const splashTargets = getOrthogonalNeighbors(originalTargetIndex)
       .filter((idx) => idx !== originalTargetIndex)
@@ -7527,11 +8153,9 @@ function applyPendingAttack(pendingAction) {
   const attackerAfterPrimaryIndex = findUnitIndexById(pendingAction.unitId);
   const attackerAfterPrimary = attackerAfterPrimaryIndex >= 0 ? matchState.board[attackerAfterPrimaryIndex] : null;
   if (attackerAfterPrimary && unitHasEffectType(attackerAfterPrimary, 'on_kill_heal_1') && defeatedByAttack > 0) {
-    const before = attackerAfterPrimary.currentHp;
-    attackerAfterPrimary.currentHp = Math.min(attackerAfterPrimary.maxHp, attackerAfterPrimary.currentHp + defeatedByAttack);
-    const healed = attackerAfterPrimary.currentHp - before;
-    if (healed > 0) {
-      addLog(`${attackerAfterPrimary.name} は撃破効果で HP を ${healed} 回復しました`);
+    const healResult = healUnitForEffect(attackerAfterPrimary, defeatedByAttack);
+    if (healResult.healed > 0) {
+      addLog(`${attackerAfterPrimary.name} は撃破効果で HP を ${healResult.healed} 回復しました`);
     }
   }
   if (attackerAfterPrimary && unitHasEffectType(attackerAfterPrimary, 'on_kill_permanent_atk_plus_1') && defeatedByAttack > 0) {
@@ -7542,7 +8166,7 @@ function applyPendingAttack(pendingAction) {
     let totalHealed = 0;
     let totalAtkUp = 0;
     for (let i = 0; i < defeatedByAttack; i += 1) {
-      if (attackerAfterPrimary.currentHp < attackerAfterPrimary.maxHp) {
+      if (attackerAfterPrimary.currentHp < attackerAfterPrimary.maxHp && !isUnitBuffsAndHealNegated(attackerAfterPrimary)) {
         attackerAfterPrimary.currentHp += 1;
         totalHealed += 1;
       } else {
@@ -7550,7 +8174,10 @@ function applyPendingAttack(pendingAction) {
         totalAtkUp += 1;
       }
     }
-    if (totalHealed > 0) addLog(`${attackerAfterPrimary.name} は撃破効果で HP を ${totalHealed} 回復しました`);
+    if (totalHealed > 0) {
+      markUnitHealedThisRound(attackerAfterPrimary);
+      addLog(`${attackerAfterPrimary.name} は撃破効果で HP を ${totalHealed} 回復しました`);
+    }
     if (totalAtkUp > 0) addLog(`${attackerAfterPrimary.name} は撃破効果で攻撃力が ${totalAtkUp} 上昇しました（ATK ${attackerAfterPrimary.atk}）`);
   }
   if (attackerAfterPrimary && unitHasEffectType(attackerAfterPrimary, 'gain_hp_1_on_attack_permanent')) {
@@ -7562,7 +8189,7 @@ function applyPendingAttack(pendingAction) {
   const attackerStillAliveIndex = findUnitIndexById(pendingAction.unitId);
   const attackerStillAlive = attackerStillAliveIndex >= 0 ? matchState.board[attackerStillAliveIndex] : null;
 
-  if (attackerStillAlive && attackerStillAlive.cardId === 'RV-040') {
+  if (attackerStillAlive && isUnitCardEffectActive(attackerStillAlive, attackerStillAliveIndex) && attackerStillAlive.cardId === 'RV-040') {
     const aroundTargets = getChebyshevNeighbors(attackerStillAliveIndex, 1)
       .filter((idx) => idx !== attackerStillAliveIndex)
       .filter((idx) => !!matchState.board[idx]);
@@ -7579,6 +8206,11 @@ function applyPendingAttack(pendingAction) {
     }
   }
 
+  if (markedAttackConsumed) {
+    attacker.nextAttackAppliesNoHealNoRevive = false;
+    addLog(`${attacker.name} の次の攻撃による回復・復活封じが発動しました`);
+  }
+
   if (royalCommandAttackBoost > 0 && matchState.turnState?.royalCommandUnitId === pendingAction.unitId) {
     addLog(`${attacker.name} は王冠の勅命により、移動後の最初の攻撃が +1 されました`);
     matchState.turnState.royalCommandAttackReady = false;
@@ -7587,7 +8219,7 @@ function applyPendingAttack(pendingAction) {
 
   const attackerAfterEffectsIndex = findUnitIndexById(pendingAction.unitId);
   const attackerAfterEffects = attackerAfterEffectsIndex >= 0 ? matchState.board[attackerAfterEffectsIndex] : null;
-  if (attackerAfterEffects && attackerAfterEffects.cardId === 'RV-031') {
+  if (attackerAfterEffects && isUnitCardEffectActive(attackerAfterEffects, attackerAfterEffectsIndex) && attackerAfterEffects.cardId === 'RV-031') {
     addLog(`${attackerAfterEffects.name} は狂戦士の反動で自身に1ダメージを受けます`);
     applyDamageToIndex(attackerAfterEffectsIndex, 1, `${attackerAfterEffects.name} の反動で`, { creditPlayerKey: null });
   }
@@ -7633,15 +8265,15 @@ function applyPendingAttack(pendingAction) {
     if (shadowProfile) specialAttackFxQueue.push({ index: shadowReturnIndex, profile: shadowProfile, delay: 520 });
   }
   if (attackerAfterAllEffects && attackerCurrentIndex >= 0) {
-    if (attackerAfterAllEffects.cardId === 'RV-047') {
+    if (isUnitCardEffectActive(attackerAfterAllEffects, attackerCurrentIndex) && attackerAfterAllEffects.cardId === 'RV-047') {
       const drainProfile = getCardSignatureProfile('RV-047', 'buff');
       if (drainProfile) specialAttackFxQueue.push({ index: attackerCurrentIndex, profile: drainProfile, delay: 380 });
     }
-    if (attackerAfterAllEffects.cardId === 'RV-049' && defeatedByAttack > 0) {
+    if (isUnitCardEffectActive(attackerAfterAllEffects, attackerCurrentIndex) && attackerAfterAllEffects.cardId === 'RV-049' && defeatedByAttack > 0) {
       const bloodProfile = getCardSignatureProfile('RV-049', 'buff');
       if (bloodProfile) specialAttackFxQueue.push({ index: attackerCurrentIndex, profile: bloodProfile, delay: 420 });
     }
-    if (attackerAfterAllEffects.cardId === 'RV-046') {
+    if (isUnitCardEffectActive(attackerAfterAllEffects, attackerCurrentIndex) && attackerAfterAllEffects.cardId === 'RV-046') {
       const rapidProfile = getCardSignatureProfile('RV-046', 'buff');
       if (rapidProfile) specialAttackFxQueue.push({ index: attackerCurrentIndex, profile: rapidProfile, delay: 360 });
     }
@@ -7818,7 +8450,7 @@ function handleBoardCellClick(index) {
   }
 
   if (pendingAction) {
-    if (pendingAction.type === 'move' && matchState.actionMode === 'move' && selectedUnit && !unit && getReachableMoveCells(matchState.selectedUnitId).includes(index)) {
+    if (pendingAction.type === 'move' && matchState.actionMode === 'move' && selectedUnit && ((!unit) || (unit.owner === matchState.currentPlayer)) && getReachableMoveCells(matchState.selectedUnitId).includes(index)) {
       moveSelectedUnit(index);
       return;
     }
@@ -7834,7 +8466,7 @@ function handleBoardCellClick(index) {
     return;
   }
 
-  if (matchState.actionMode === 'move' && selectedUnit && !unit) {
+  if (matchState.actionMode === 'move' && selectedUnit && ((!unit) || (unit.owner === matchState.currentPlayer)) && getReachableMoveCells(matchState.selectedUnitId).includes(index)) {
     moveSelectedUnit(index);
     return;
   }
@@ -7943,7 +8575,7 @@ function renderFieldLog(playerKey) {
   const field = cardMap.get(player.fieldId);
   if (!field) return;
   if (field.effect_type === 'field_range_limit_adjacent_only') {
-    addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」により、相手は自軍ユニットに隣接する敵にしか通常攻撃できず、攻撃アイテムも同様です`);
+    addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」により、相手は隣接する敵にしか通常攻撃できず、攻撃アイテムも同様です`);
     return;
   }
   if (field.effect_type === 'field_no_attack_after_move') {
@@ -7970,6 +8602,14 @@ function renderFieldLog(playerKey) {
   }
   if (field.effect_type === 'field_center_ally_guard_1_atk_plus_1') {
     addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」により、中央9マスの味方ユニットは受けるダメージ -1、攻撃力 +1 になります`);
+    return;
+  }
+  if (field.effect_type === 'field_center_allies_cannot_be_destroyed_by_enemy_items') {
+    addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」により、中央9マスの味方ユニットは敵アイテムの効果で破壊されません`);
+    return;
+  }
+  if (field.effect_type === 'field_start_round_heal_1_and_cleanse_center_ally') {
+    addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」により、自分のラウンド開始時に中央9マスの味方1体のHPを1回復し、攻撃不能・行動不能・移動力-1を解除します`);
     return;
   }
   addLog(`${PLAYER_LABEL[playerKey]}: 環境カード「${field.card_name}」の処理を記録しました`);
@@ -8062,7 +8702,8 @@ function toggleMoveMode() {
 
 function toggleAttackMode() {
   if (isRoomBattleLocked() || matchState.phase !== 'battle' || isItemWindowOpen() || getPostAttackMoveUnit()) return;
-  if (currentPlayerCannotAttackAfterMove()) {
+  const currentFieldCheckUnit = getCurrentUnitForFieldRestrictionCheck();
+  if (currentPlayerCannotAttackAfterMove(currentFieldCheckUnit)) {
     window.alert('暴風域の効果により、移動後は攻撃できません。');
     return;
   }
@@ -8171,7 +8812,7 @@ function applyRoomAttack(data = {}) {
     targetName: defender.name,
     actorPlayer,
     damage: getAttackDamageAgainst(attacker, sourceIndex, defender, targetIndex),
-    bonusText: attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, targetIndex, defender.owner) ? '背後攻撃 +1' : '',
+    bonusText: isUnitCardEffectActive(attacker, sourceIndex) && attacker.cardId === 'RV-028' && isBackAttack(sourceIndex, targetIndex, defender.owner) ? '背後攻撃 +1' : '',
   });
   return true;
 }
@@ -8234,6 +8875,16 @@ function exportRoomSyncSnapshot() {
       singleUseDamageReduction: unit.singleUseDamageReduction,
       guardBlockUsed: unit.guardBlockUsed,
       negateDamageUsed: unit.negateDamageUsed,
+      surviveOnceUsed: unit.surviveOnceUsed,
+      healedInRound: Number(unit.healedInRound || 0),
+      untargetableByEnemyItemsUntilTurnStartOf: unit.untargetableByEnemyItemsUntilTurnStartOf || '',
+      negateBuffsAndHealUntilTurnStartOf: unit.negateBuffsAndHealUntilTurnStartOf || '',
+      noHealNoReviveUntilTurnStartOf: unit.noHealNoReviveUntilTurnStartOf || '',
+      centerSilenceDisableAttackUntilTurnStartOf: unit.centerSilenceDisableAttackUntilTurnStartOf || '',
+      fullSilenceUntilTurnStartOf: unit.fullSilenceUntilTurnStartOf || '',
+      negateNextDestroyStunDisableAttackUntilTurnStartOf: unit.negateNextDestroyStunDisableAttackUntilTurnStartOf || '',
+      itemFieldNegateControlUsed: !!unit.itemFieldNegateControlUsed,
+      nextAttackAppliesNoHealNoRevive: !!unit.nextAttackAppliesNoHealNoRevive,
     } : null),
     turnState: {
       moved: !!matchState.turnState?.moved,
@@ -8255,11 +8906,13 @@ function exportRoomSyncSnapshot() {
         reserveBattleIds: [...(matchState.players.player1.reserveBattleIds || [])],
         fieldId: matchState.players.player1.fieldId || '',
         itemStates: (matchState.players.player1.itemStates || []).map((item) => ({ cardId: item.cardId, used: !!item.used })),
+        negateEnemyFieldUntilOwnTurnStart: !!matchState.players.player1.negateEnemyFieldUntilOwnTurnStart,
       },
       player2: {
         reserveBattleIds: [...(matchState.players.player2.reserveBattleIds || [])],
         fieldId: matchState.players.player2.fieldId || '',
         itemStates: (matchState.players.player2.itemStates || []).map((item) => ({ cardId: item.cardId, used: !!item.used })),
+        negateEnemyFieldUntilOwnTurnStart: !!matchState.players.player2.negateEnemyFieldUntilOwnTurnStart,
       },
     },
     pendingRevives: Array.isArray(matchState.pendingRevives) ? [...matchState.pendingRevives] : [],
@@ -8267,8 +8920,84 @@ function exportRoomSyncSnapshot() {
   };
 }
 
+
+function buildDefaultRoomTurnState() {
+  return {
+    moved: false,
+    movedUnitId: null,
+    attacked: false,
+    attackCount: 0,
+    attackUnitId: null,
+    itemWindowOpen: true,
+    itemUsed: false,
+    selectedItemCardId: null,
+    selectedItemTargetIndex: null,
+    pendingAction: null,
+    acceleratedUnitId: null,
+    acceleratedMovesRemaining: 0,
+    royalCommandUnitId: null,
+    royalCommandAttackReady: false,
+    postAttackMoveUnitId: null,
+    pendingRedeployCardId: null,
+    pendingRedeployOwner: null,
+  };
+}
+
+function importRoomSyncSnapshot(snapshot = {}) {
+  if (!snapshot || typeof snapshot !== 'object') return false;
+  if (Array.isArray(snapshot.board) && snapshot.board.length === 25) {
+    matchState.board = snapshot.board.map((unit) => unit ? { ...unit } : null);
+  }
+  if (snapshot.players && typeof snapshot.players === 'object') {
+    ['player1', 'player2'].forEach((key) => {
+      const source = snapshot.players[key];
+      if (!source || typeof source !== 'object') return;
+      const target = matchState.players[key] || createEmptyPlayerState();
+      if (Array.isArray(source.reserveBattleIds)) target.reserveBattleIds = source.reserveBattleIds.map(String);
+      if (Array.isArray(source.battleDeckIds)) target.battleDeckIds = source.battleDeckIds.map(String);
+      if (typeof source.fieldId === 'string') target.fieldId = source.fieldId;
+      if (Array.isArray(source.itemStates)) {
+        target.itemStates = source.itemStates.map((item) => ({ cardId: String(item.cardId || ''), used: !!item.used }));
+      }
+      if (typeof source.defeated === 'number') target.defeated = Number(source.defeated || 0);
+      if (typeof source.teamDamageReduction === 'number') target.teamDamageReduction = Number(source.teamDamageReduction || 0);
+      if (typeof source.teamDamageReductionExpiresOnOwnTurnStart === 'boolean') target.teamDamageReductionExpiresOnOwnTurnStart = !!source.teamDamageReductionExpiresOnOwnTurnStart;
+      if (typeof source.negateEnemyFieldUntilOwnTurnStart === 'boolean') target.negateEnemyFieldUntilOwnTurnStart = !!source.negateEnemyFieldUntilOwnTurnStart;
+      matchState.players[key] = target;
+    });
+  }
+  if (snapshot.turnState && typeof snapshot.turnState === 'object') {
+    matchState.turnState = {
+      ...buildDefaultRoomTurnState(),
+      ...snapshot.turnState,
+      itemWindowOpen: !!snapshot.turnState.itemWindowOpen,
+      itemUsed: !!snapshot.turnState.itemUsed,
+      moved: !!snapshot.turnState.moved,
+      attacked: !!snapshot.turnState.attacked,
+      attackCount: Number(snapshot.turnState.attackCount || 0),
+      acceleratedMovesRemaining: Number(snapshot.turnState.acceleratedMovesRemaining || 0),
+      royalCommandAttackReady: !!snapshot.turnState.royalCommandAttackReady,
+    };
+  }
+  if (Array.isArray(snapshot.pendingRevives)) matchState.pendingRevives = [...snapshot.pendingRevives];
+  if (Array.isArray(snapshot.pendingRedeploys)) matchState.pendingRedeploys = [...snapshot.pendingRedeploys];
+  if (typeof snapshot.phase === 'string') matchState.phase = snapshot.phase;
+  if (typeof snapshot.currentPlayer === 'string') matchState.currentPlayer = snapshot.currentPlayer;
+  if (typeof snapshot.round === 'number') matchState.round = Number(snapshot.round || 1);
+  if (typeof snapshot.setupStepIndex === 'number') matchState.setupStepIndex = Number(snapshot.setupStepIndex || 0);
+  if (typeof snapshot.placedInCurrentStep === 'number') matchState.placedInCurrentStep = Number(snapshot.placedInCurrentStep || 0);
+  if (Object.prototype.hasOwnProperty.call(snapshot, 'winner')) matchState.winner = snapshot.winner || null;
+  matchState.selectedUnitId = null;
+  matchState.selectedReserveCardId = null;
+  matchState.actionMode = null;
+  return true;
+}
+
 function applyRoomStateSync(data = {}) {
   clearRoomPendingRequests();
+  if (data.snapshot && typeof data.snapshot === 'object') {
+    importRoomSyncSnapshot(data.snapshot);
+  }
   const wasFinished = matchState.phase === 'finished';
   if (typeof data.currentPlayer === 'string') matchState.currentPlayer = data.currentPlayer;
   if (typeof data.round === 'number') matchState.round = data.round;
