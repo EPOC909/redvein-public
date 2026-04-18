@@ -453,6 +453,10 @@ const MIME_TYPES = {
 };
 
 const rooms = new Map();
+const ROOM_STATE_PATH = path.join(ROOT_DIR, 'rooms_state.json');
+const ROOM_PERSIST_VERSION = 1;
+const ROOM_PERSIST_DEBOUNCE_MS = 250;
+const ROOM_STALE_DELETE_MS = 24 * 60 * 60 * 1000;
 const baseCards = loadCards();
 const cards = [...baseCards, ...SPECIAL_CARDS];
 const cardMap = new Map(cards.map((card) => [card.card_id, card]));
@@ -468,7 +472,8 @@ const SETUP_SEQUENCE = [
 const HOME_COLUMN = { player1: 0, player2: 4 };
 const PLAYER_ROLE_MAP = { p1: 'player1', p2: 'player2' };
 const DUPLICATE_WINDOW_MS = 700;
-const RECONNECT_GRACE_MS = 5 * 60 * 1000;
+const RECONNECT_GRACE_MS = 12 * 60 * 60 * 1000;
+let persistRoomsTimer = null;
 
 function loadCards() {
   try {
@@ -658,6 +663,129 @@ function createEmptyRoom(roomId) {
   };
 }
 
+function cloneJsonSafe(value, fallback) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function persistableParticipant(slot) {
+  if (!slot) return null;
+  const { ws, ...rest } = slot;
+  return {
+    ...cloneJsonSafe(rest, {}),
+    role: slot.role,
+    reconnectToken: String(slot.reconnectToken || crypto.randomUUID()),
+    disconnectedAt: Number(slot.disconnectedAt || 0),
+    joinedAt: Number(slot.joinedAt || Date.now()),
+  };
+}
+
+function persistableRoom(room) {
+  if (!room) return null;
+  return {
+    roomId: String(room.roomId || '').toUpperCase(),
+    roomState: computeRoomState(room),
+    p1: persistableParticipant(room.p1),
+    p2: persistableParticipant(room.p2),
+    spectator: persistableParticipant(room.spectator),
+    game: cloneJsonSafe(room.game, null),
+    controlRequests: serializeControlRequests(room),
+    updatedAt: Number(room.updatedAt || Date.now()),
+  };
+}
+
+function writeRoomsToDisk() {
+  persistRoomsTimer = null;
+  try {
+    const payload = {
+      v: ROOM_PERSIST_VERSION,
+      savedAt: Date.now(),
+      rooms: Array.from(rooms.values())
+        .map((room) => persistableRoom(room))
+        .filter(Boolean),
+    };
+    fs.writeFileSync(ROOM_STATE_PATH, JSON.stringify(payload), 'utf-8');
+  } catch (error) {
+    console.error('ルーム保存に失敗しました。', error);
+  }
+}
+
+function scheduleRoomsPersist() {
+  if (persistRoomsTimer) clearTimeout(persistRoomsTimer);
+  persistRoomsTimer = setTimeout(writeRoomsToDisk, ROOM_PERSIST_DEBOUNCE_MS);
+  if (typeof persistRoomsTimer.unref === 'function') persistRoomsTimer.unref();
+}
+
+function markRoomChanged(room) {
+  if (room) {
+    room.updatedAt = Date.now();
+    room.roomState = computeRoomState(room);
+  }
+  scheduleRoomsPersist();
+}
+
+function hydrateParticipant(raw, role, hydratedAt) {
+  if (!raw || typeof raw !== 'object') return null;
+  const deckPayload = role === 'spectator' ? null : sanitizeDeckPayload(raw.deckPayload);
+  return {
+    role,
+    displayName: String(raw.displayName || '名無しプレイヤー'),
+    deckName: String(raw.deckName || deckPayload?.name || 'デッキ未選択'),
+    deckPayload,
+    saveKey: normalizeSaveKey(raw.saveKey || ''),
+    unlockTokens: sanitizeUnlockTokens(raw.unlockTokens),
+    reconnectToken: String(raw.reconnectToken || crypto.randomUUID()),
+    ws: null,
+    disconnectedAt: Number(raw.disconnectedAt || hydratedAt || Date.now()),
+    joinedAt: Number(raw.joinedAt || hydratedAt || Date.now()),
+  };
+}
+
+function hydratePersistedRoom(raw, hydratedAt = Date.now()) {
+  if (!raw || typeof raw !== 'object') return null;
+  const roomId = String(raw.roomId || '').toUpperCase();
+  if (!roomId) return null;
+  const room = createEmptyRoom(roomId);
+  room.p1 = hydrateParticipant(raw.p1, 'p1', hydratedAt);
+  room.p2 = hydrateParticipant(raw.p2, 'p2', hydratedAt);
+  room.spectator = hydrateParticipant(raw.spectator, 'spectator', hydratedAt);
+  room.game = raw.game && typeof raw.game === 'object' ? cloneJsonSafe(raw.game, null) : null;
+  room.controlRequests = serializeControlRequests({ controlRequests: raw.controlRequests });
+  room.updatedAt = Number(raw.updatedAt || hydratedAt || Date.now());
+  room.roomState = computeRoomState(room);
+  return room;
+}
+
+function loadPersistedRooms() {
+  try {
+    if (!fs.existsSync(ROOM_STATE_PATH)) return;
+    const raw = fs.readFileSync(ROOM_STATE_PATH, 'utf-8');
+    if (!raw.trim()) return;
+    const payload = JSON.parse(raw);
+    const list = Array.isArray(payload?.rooms) ? payload.rooms : [];
+    const hydratedAt = Date.now();
+    let restoredCount = 0;
+    list.forEach((entry) => {
+      const room = hydratePersistedRoom(entry, hydratedAt);
+      if (!room) return;
+      const staleAge = hydratedAt - Number(room.updatedAt || hydratedAt);
+      if (!room.p1 && !room.p2 && !room.spectator) return;
+      if (staleAge > ROOM_STALE_DELETE_MS) return;
+      rooms.set(room.roomId, room);
+      restoredCount += 1;
+    });
+    if (restoredCount > 0) {
+      console.log(`保存済みルームを ${restoredCount} 件復元しました。`);
+      scheduleRoomsPersist();
+    }
+  } catch (error) {
+    console.error('保存済みルームの復元に失敗しました。', error);
+  }
+}
+
 function sanitizeDeckPayload(deck) {
   if (!deck || typeof deck !== 'object') return null;
   return {
@@ -757,8 +885,7 @@ function roomSnapshot(room, role) {
 }
 
 function broadcastRoom(room, noticeMessage = '') {
-  room.roomState = computeRoomState(room);
-  room.updatedAt = Date.now();
+  markRoomChanged(room);
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
     if (slot?.ws) {
       send(slot.ws, roomSnapshot(room, role));
@@ -774,7 +901,7 @@ function startRoomGameRound(room, startNotice = '') {
   }
   clearRoomControlRequests(room);
   room.game = createInitialGameState(room);
-  room.roomState = computeRoomState(room);
+  markRoomChanged(room);
   const payload = makeGameStartedPayload(room);
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
     if (slot?.ws) {
@@ -946,7 +1073,7 @@ function finalizeRoomGameIfNeeded(room, explicitMessage = '') {
   room.game.phase = 'finished';
   room.game.winner = finishMessage;
   room.roomState = 'finished';
-  room.updatedAt = Date.now();
+  markRoomChanged(room);
   [['p1', room.p1], ['p2', room.p2], ['spectator', room.spectator]].forEach(([role, slot]) => {
     if (!slot?.ws) return;
     send(slot.ws, roomSnapshot(room, role));
@@ -1187,7 +1314,7 @@ function getAttackTargets(game, unitId) {
       .filter((idx) => game.board[idx] && game.board[idx].owner !== game.currentPlayer)
   );
 
-  if (unitHasEffectType(unit, 'range_2', game, startIndex) || (unitHasEffectType(unit, 'pierce_line_2', game, startIndex) && unit.cardId !== 'RV-017')) {
+  if (unitHasEffectType(unit, 'range_2', game, startIndex) || unitHasEffectType(unit, 'pierce_line_2', game, startIndex)) {
     [
       [[row - 1, col], [row - 2, col]],
       [[row + 1, col], [row + 2, col]],
@@ -1683,8 +1810,7 @@ function mergePublicStateSnapshot(room, payload, playerKey) {
     }
   });
 
-  room.updatedAt = Date.now();
-  room.roomState = computeRoomState(room);
+  markRoomChanged(room);
   const finishMessage = room.game.phase === 'finished' ? (room.game.winner || getEliminationFinishMessage(room.game) || '対戦が終了しました') : getEliminationFinishMessage(room.game);
   const payloadOut = {
     type: 'battle_state_synced',
@@ -1740,6 +1866,7 @@ function handleCreateRoom(data, ws) {
   while (rooms.has(roomId)) roomId = makeRoomId();
   const room = createEmptyRoom(roomId);
   rooms.set(roomId, room);
+  scheduleRoomsPersist();
   attachParticipant(room, 'p1', { ...data, deckPayload, ...unlockAuth }, ws);
 }
 
@@ -1788,6 +1915,7 @@ function handleReconnectRoom(data, ws) {
       slot.ws = ws;
       slot.disconnectedAt = 0;
       ws.meta = { roomId: room.roomId, role, reconnectToken: slot.reconnectToken };
+      markRoomChanged(room);
       send(ws, {
         type: 'room_joined',
         roomId: room.roomId,
@@ -1988,6 +2116,7 @@ function handleMoveUnit(data, ws) {
       game.turnState.moved = true;
     }
   }
+  markRoomChanged(room);
   const payload = {
     type: 'move_applied',
     roomId: room.roomId,
@@ -2063,6 +2192,7 @@ function handleAttackUnit(data, ws) {
     game.turnState.royalCommandAttackReady = false;
     game.turnState.royalCommandUnitId = null;
   }
+  markRoomChanged(room);
   const payload = {
     type: 'attack_applied',
     roomId: room.roomId,
@@ -2124,6 +2254,7 @@ function handleUseItem(data, ws) {
   game.turnState.itemWindowOpen = false;
   game.turnState.itemUsed = true;
   applyServerSideItemEffects(game, playerKey, cardId, targetIndex);
+  markRoomChanged(room);
   const payload = {
     type: 'item_used',
     roomId: room.roomId,
@@ -2160,6 +2291,7 @@ function handleFinishItemPhase(data, ws) {
   }
   game.itemPhaseOpen = false;
   game.turnState.itemWindowOpen = false;
+  markRoomChanged(room);
   const payload = {
     type: 'item_phase_finished',
     roomId: room.roomId,
@@ -2199,6 +2331,7 @@ function handleEndTurn(data, ws) {
   if (previousPlayer === 'player2') nextRound += 1;
   game.round = nextRound;
   beginTurn(game, nextPlayer);
+  markRoomChanged(room);
   const payload = {
     type: 'turn_ended',
     roomId: room.roomId,
@@ -2251,6 +2384,7 @@ function handleRoomActionRequest(data, ws) {
       }
     });
     rooms.delete(room.roomId);
+    scheduleRoomsPersist();
     return;
   }
 
@@ -2294,7 +2428,7 @@ function handleRoomActionRequest(data, ws) {
   if (!room.controlRequests) clearRoomControlRequests(room);
   const requested = data.requested !== false;
   room.controlRequests[action][meta.role] = requested;
-  room.updatedAt = Date.now();
+  markRoomChanged(room);
 
   const actorLabel = meta.role.toUpperCase();
   const actionLabel = action === 'rematch' ? '再戦' : 'リセット';
@@ -2326,26 +2460,37 @@ function removeConnection(ws) {
   if (slot.reconnectToken === meta.reconnectToken) {
     slot.ws = null;
     slot.disconnectedAt = Date.now();
-    broadcastRoom(room, `${slot.displayName} が切断しました。5分以内なら同じ立場で復帰できます。`);
+    broadcastRoom(room, `${slot.displayName} が切断しました。しばらく待っても同じ立場で復帰できます。`);
   }
 }
 
 function cleanupExpiredReconnectSlots() {
   const now = Date.now();
+  let changed = false;
   for (const room of rooms.values()) {
     for (const role of ['p1', 'p2', 'spectator']) {
       const slot = room[role];
       if (!slot || slot.ws || !slot.disconnectedAt) continue;
       if ((now - slot.disconnectedAt) <= RECONNECT_GRACE_MS) continue;
       room[role] = null;
+      changed = true
       broadcastRoom(room, `${slot.displayName} の復帰猶予が切れました。`);
     }
-    if (!room.p1 && !room.p2 && !room.spectator) {
+    const roomIdleMs = now - Number(room.updatedAt || now);
+    if (!room.p1 && !room.p2 && !room.spectator && roomIdleMs > RECONNECT_GRACE_MS) {
       rooms.delete(room.roomId);
+      changed = true
+      continue;
+    }
+    if (room.game?.phase === 'finished' && roomIdleMs > ROOM_STALE_DELETE_MS) {
+      rooms.delete(room.roomId);
+      changed = true
     }
   }
+  if (changed) scheduleRoomsPersist();
 }
 
+loadPersistedRooms();
 setInterval(cleanupExpiredReconnectSlots, 15000);
 
 const server = http.createServer(async (req, res) => {
@@ -2438,6 +2583,8 @@ wss.on('connection', (ws) => {
         case 'end_turn': handleEndTurn(data, ws); break;
         case 'sync_public_state': handleSyncPublicState(data, ws); break;
         case 'room_action_request': handleRoomActionRequest(data, ws); break;
+        case 'ping': send(ws, { type: 'pong', at: Date.now() }); break;
+        case 'heartbeat': send(ws, { type: 'heartbeat_ack', at: Date.now() }); break;
         default: send(ws, { type: 'error', message: '未対応のメッセージです。' }); break;
       }
     } catch (error) {
@@ -2448,6 +2595,18 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => removeConnection(ws));
 });
+
+function flushRoomsNow() {
+  if (persistRoomsTimer) {
+    clearTimeout(persistRoomsTimer);
+    persistRoomsTimer = null;
+  }
+  writeRoomsToDisk();
+}
+
+process.on('SIGTERM', flushRoomsNow);
+process.on('SIGINT', flushRoomsNow);
+process.on('beforeExit', flushRoomsNow);
 
 server.listen(PORT, HOST, () => {
   console.log(`RED VEIN room server: http://localhost:${PORT}`);
